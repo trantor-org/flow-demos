@@ -199,13 +199,13 @@ const LATEST = {};
 for (const f of Object.values(S.flows)) if (f.name !== "board") for (const s of f.agents) if (s.task && (!LATEST[s.task] || s.active > LATEST[s.task].active)) LATEST[s.task] = { ...s, flow: f.name };
 const latestSession = (id) => LATEST[id];
 // a state shows its primary machine and at most PER more lifecycle machines as moons; past that a pager moon at the bottom of the ring,
-// named below it, steps through the rest, page by page, on the Board and the state level alike. The tasks working a machine on another page orbit the pager; its DAGs wait for its page. A paged
+// named below it between a back and a forward button, steps through the rest, page by page, on the Board and the state level alike. The tasks working a machine on another page orbit the pager; its DAGs wait for its page. A paged
 // state is sized for its fullest page, so stepping through the pages never resizes it or moves what is around it
 const PER = 12, PAGE = {};
 function paged(sid, list, at) { const pages = Math.ceil(list.length / PER); if (pages <= 1) return { shown: list, hidden: [], pager: null };
   const page = (at ?? PAGE[sid] ?? 0) % pages, shown = list.slice(page * PER, page * PER + PER), hidden = list.filter((n) => !shown.includes(n));
-  return { shown, hidden, pager: { sid, page, pages, hidden, title: `${page + 1}/${pages} · ${hidden.length} more ›` } }; }
-const nextPage = (pg) => { PAGE[pg.sid] = (pg.page + 1) % pg.pages; const v = view; build(); view = v; if (scene.hub) edgePaths(lastFit); }; // the view holds still
+  return { shown, hidden, pager: { sid, page, pages, hidden, title: `${page + 1}/${pages} · ${hidden.length} more` } }; }
+const turnPage = (pg, d = 1) => { PAGE[pg.sid] = (pg.page + d + pg.pages) % pg.pages; const v = view; build(); view = v; if (scene.hub) edgePaths(lastFit); }; // the view holds still
 const everyPage = (sid, list, pg) => Array.from({ length: pg.pager ? pg.pager.pages : 1 }, (_, i) => paged(sid, list, i));
 // one path per ordered pair of states: every event between them, and every writer with the event it writes
 const merged = (trs) => { const by = new Map();
@@ -482,7 +482,7 @@ function buildBoard() {
   const bodies = Object.keys(anchors).map((n) => { const g = glyph(dagOf(n)), home = homes[n];
     return { n, x: home.x, y: home.y, home, hw: hwOf(n), up: Math.max(g.h / 2 + 10, g.br + 6), dn: Math.max(g.h / 2, g.br) + 16 * F + 12, k: 0.03 }; });
   const cols = {};
-  for (const m of scene.moons) { const left = m.x < m.parent.x - 1, w = m.R + m.ext + 10 + textW(m.label, 10.5) * F, hw = (textW(m.label, 10.5) * F) / 2 + 4;
+  for (const m of scene.moons) { const left = m.x < m.parent.x - 1, w = m.R + m.ext + 10 + textW(m.label, 10.5) * F, hw = (textW(m.label, 10.5) * F) / 2 + 26 * F;
     const b = m.pager ? { x0: m.x - hw, x1: m.x + hw, y0: m.y - m.R, y1: m.y + m.R + 24 * F } : { x0: left ? m.x - w : m.x - m.R, x1: left ? m.x + m.R : m.x + w, y0: m.y - 10 * F, y1: m.y + 10 * F }, k = `${m.parent.id}${m.pager ? "p" : left}`, c = cols[k];
     cols[k] = c ? { x0: Math.min(c.x0, b.x0), x1: Math.max(c.x1, b.x1), y0: Math.min(c.y0, b.y0), y1: Math.max(c.y1, b.y1) } : b; }
   for (const g of Object.values(scene.galaxies)) if (g.cols) g.cols.forEach((c, sd) => (cols[`${g.id}${!!sd}`] = { x0: g.x + c.x0, x1: g.x + c.x1, y0: g.y + c.y0, y1: g.y + c.y1 }));
@@ -833,6 +833,7 @@ function hit(x, y) {
   const near = (o, r) => Math.hypot(o.x - x, o.y - y) < r;
   for (const s of scene.sessions) if (s._x !== undefined && Math.hypot(s._x - x, s._y - y) < Math.max(4, px(7))) return { kind: "session", o: s };
   for (const t of scene.tasks) if (!t.gone && near(t, Math.max(t.big ? 7 : 5, px(7)))) return { kind: "task", o: t };
+  for (const o of [...scene.moons, ...scene.planets]) for (const t of o.turns || []) if (near(t, Math.max(t.r, px(9)))) return { kind: "turn", o: t };
   for (const s of Object.values(scene.stars)) if (near(s, Math.max(s.br, px(10)))) return { kind: "dag", o: s };
   for (const s of Object.values(scene.mStates)) if (near(s, Math.max(stateR(s), px(9)))) return { kind: "state", o: s };
   for (const p of scene.planets) if (near(p, p.moon ? Math.max(p.R + 6, px(10)) : p.R + 16)) return { kind: "planet", o: p };
@@ -860,7 +861,8 @@ function setHover(h, mx, my) {
 }
 const writerLine = (w) => `${esc(w.actor)} <span class="k">${w.event ? `writes ${esc(w.event)} ` : ""}via ${esc(w.trigger)}</span>`;
 function tipHtml({ kind, o }) {
-  if ((kind === "moon" || kind === "planet") && o.pager) return `<div class="k">page ${o.pager.page + 1} of ${o.pager.pages} · click for the next page</div><div class="n">${o.pager.hidden.length} more lifecycle machines</div>${o.pager.hidden.slice(0, 12).map(esc).join("<br>")}${o.pager.hidden.length > 12 ? "<br>…" : ""}`;
+  if (kind === "turn") return `<div class="k">page ${o.pager.page + 1} of ${o.pager.pages}</div><div class="n">${o.d < 0 ? "‹ previous page" : "next page ›"}</div>`;
+  if ((kind === "moon" || kind === "planet") && o.pager) return `<div class="k">page ${o.pager.page + 1} of ${o.pager.pages} · ‹ › or a click on it turns the page</div><div class="n">${o.pager.hidden.length} more lifecycle machines</div>${o.pager.hidden.slice(0, 12).map(esc).join("<br>")}${o.pager.hidden.length > 12 ? "<br>…" : ""}`;
   if (kind === "task") return `<div class="k">task · ${esc(stateName(o.state))}${o.host.states || o.host.depends ? ` · orbiting ${esc(o.host.title || o.host.name)}` : ""} · click for details</div><div class="n">${esc(o.id)}</div>${esc(o.title)}<div class="k">${esc(o.model)} · ${o.labels.map(esc).join(", ")}</div>`;
   if (kind === "session") return `<div class="k">${esc(o.kind)} session · ${esc(o.flow)}</div><div class="n">${esc(o.task || o.title)}</div><div class="k">${esc(o._state || o.state)} · ${o.steps} steps · ${esc(o.model)} · last active ${hhmm(o.active)} MST</div>`;
   if (kind === "dag" && o.fold) return `<div class="k">${o.fold.length} DAGs on one path · click to open them</div><div class="n">${o.fold.map(esc).join("<br>")}</div><div class="k">${o.tethers[0].crit.map(esc).join("<br>")}</div>`;
@@ -896,8 +898,9 @@ function openDagPanel(o) {
 function click(fx, fy) {
   const h = hover; if (!h) { panel.classList.remove("open"); return; }
   if (h.kind === "galaxy") return push({ kind: "state", id: h.o.id }, fx, fy);
-  if (h.kind === "moon" && h.o.pager) return nextPage(h.o.pager);
-  if (h.kind === "planet" && h.o.pager) return nextPage(h.o.pager);
+  if (h.kind === "turn") return turnPage(h.o.pager, h.o.d);
+  if (h.kind === "moon" && h.o.pager) return turnPage(h.o.pager);
+  if (h.kind === "planet" && h.o.pager) return turnPage(h.o.pager);
   if (h.kind === "moon") return go([...stack, { kind: "state", id: h.o.parent.id }, { kind: "machine", flow: h.o.name }], fx, fy);
   if (h.kind === "sat") return go([...stack, { kind: "state", id: h.o.board }, { kind: "machine", flow: h.o.machine }], fx, fy); // the machine the sub-state belongs to; its own state opens the child machine from there
   if (h.kind === "hangar") return push({ kind: "dags" }, fx, fy);
@@ -941,6 +944,11 @@ function bestSide(cands, pts) {
 const sample = (e, n = 26) => Array.from({ length: n + 1 }, (_, i) => bez(e.p0, e.c, e.p1, i / n));
 function circle(x, y, r, stroke, w = 1, dash) { cx.strokeStyle = stroke; cx.lineWidth = w; cx.setLineDash(dash || []); cx.beginPath(); cx.arc(x, y, r, 0, TAU); cx.stroke(); cx.setLineDash([]); }
 function dot(x, y, r, fill) { cx.fillStyle = fill; cx.beginPath(); cx.arc(x, y, r, 0, TAU); cx.fill(); }
+// the pager's name sits between a back (‹) and a forward (›) button; each is a small ring the click and hover find
+function pagerName(o, y, size, col) { text(o.pager.title, o.x, y, size / K, col, "center", 300); const off = (textW(o.pager.title, size) / 2 + 12) / K;
+  o.turns ??= [-1, 1].map((d) => ({ d, pager: o.pager })); for (const t of o.turns) Object.assign(t, { x: o.x + t.d * off, y, r: 8 / K }); // stable, so hover holds
+  for (const t of o.turns) { const hot = isHot("turn", t); circle(t.x, t.y, t.r, rgba("#c084fc", hot ? 0.9 : 0.45), 1);
+    text(t.d < 0 ? "‹" : "›", t.x, t.y - 1 / K, (size + 3) / K, rgba("#d8c8f5", hot ? 1 : 0.7), "center", 400); } }
 function isHot(kind, o) { return hover && hover.kind === kind && hover.o === o; }
 const hotDag = () => (hover?.kind === "dag" ? hover.o.name : null);
 const edgeLitBy = (e) => { const d = hover?.kind === "dag" ? hover.o.fold || [hover.o.name] : null; return d && e.writers.some((w) => d.includes(w.actor)); };
@@ -993,7 +1001,7 @@ function drawMoons() {
     if (mv) circle(m.x, m.y, m.r + 4, rgba(ACT, 0.85), 1.5);
     // each moon is named beside it, on the side away from its state, past its chain of sub-states; the pager is named below it
     const left = m.x < m.parent.x - 1, sz = 10.5 / K, col = rgba("#d8c8f5", hot ? 0.95 : 0.6); cx.letterSpacing = `${0.5 / K}px`;
-    if (m.pager) text(m.label, m.x, m.y + m.R + 12 / K, sz, col, "center", 300); else text(m.label, m.x + (left ? -1 : 1) * (m.R + m.ext + 10), m.y, sz, col, left ? "right" : "left", 300);
+    if (m.pager) pagerName(m, m.y + m.R + 14 / K, 10.5, col); else text(m.label, m.x + (left ? -1 : 1) * (m.R + m.ext + 10), m.y, sz, col, left ? "right" : "left", 300);
     cx.letterSpacing = "0px"; }
 }
 function drawSats() {
@@ -1095,7 +1103,7 @@ function drawPlanets() {
     if (p.subState) { stem(p.prev, p, "#e879f9", hot); disc(p.x, p.y, p.R, "#e879f9", hot, false, p.n ? 0.32 : 0.22); continue; }
     if (p.moon) { const sd = p.x < scene.hub.x ? -1 : 1; machine(p.x, p.y, p.R, hot, p.n ? 0.32 : 0.14, !!p.pager); if (mv.length) circle(p.x, p.y, p.R + 4, rgba(ACT, 0.85), 1.5);
       cx.letterSpacing = `${0.5 / K}px`; const col = rgba("#d8c8f5", hot ? 0.95 : 0.6);
-      if (p.pager) text(p.name, p.x, p.y + clear(p) + 12 / K, 11.5 / K, col, "center", 300); else text(p.label || p.name, p.x + sd * (past(p) + (p.owned || 0) * OWNED), p.y, 11.5 / K, col, sd < 0 ? "right" : "left", 300);
+      if (p.pager) pagerName(p, p.y + clear(p) + 14 / K, 11.5, col); else text(p.label || p.name, p.x + sd * (past(p) + (p.owned || 0) * OWNED), p.y, 11.5 / K, col, sd < 0 ? "right" : "left", 300);
       cx.letterSpacing = "0px"; continue; }
     dot(p.x, p.y, p.R + 14, "rgba(10,14,26,0.85)");
     if (mv.length) { const g = cx.createRadialGradient(p.x, p.y, p.R + 14, p.x, p.y, p.R + 30); g.addColorStop(0, rgba(ACT, 0.2)); g.addColorStop(1, rgba(ACT, 0)); cx.fillStyle = g; cx.beginPath(); cx.arc(p.x, p.y, p.R + 30, 0, TAU); cx.arc(p.x, p.y, p.R + 14, 0, TAU, true); cx.fill(); }
