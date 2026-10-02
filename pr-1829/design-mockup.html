@@ -490,10 +490,10 @@ function buildState(sid) {
   if (!subs.length) { const sun = (scene.sun = scene.hub = { id: sid, name: stateName(sid), x: cx0, y: cy0, r: 34, n: board.agents.filter((a) => a.state === sid).length, color: BOARD_COLOR[sid] });
     sun.R = attach(list, sun, sun.r + 30, 16, 16, true); sun.rim = sun.R + 8; }
   else {
-    // the skill machines hold still on an arc above and below the primary, leaving its left and right sides to the Board paths
-    const skills = subs.slice(1), top = Math.ceil(skills.length / 2), at = (i) => (i < top ? -150 + ((i + 0.5) * 120) / top : 30 + ((i - top + 0.5) * 120) / (skills.length - top)) * (Math.PI / 180);
+    // the skill machines are moons, as on the Board: small named bodies that open their machine on click; they are placed once their orbits are known
+    const skills = subs.slice(1);
     scene.hub = planet(S.flows[subs[0]], cx0, cy0, 104, true); scene.planets.push(scene.hub);
-    skills.forEach((name, i) => scene.planets.push(planet(S.flows[name], cx0 + Math.cos(at(i)) * 440, cy0 + Math.sin(at(i)) * 440, 36, false)));
+    const moons = skills.map((name) => Object.assign(planet(S.flows[name], 0, 0, 9, false), { moon: true })); scene.planets.push(...moons);
     // the primary's sub-state (pr_opened) is a small machine of its own, held still beside the primary; a task whose session is in it orbits it
     const SQ = SUBSTATES.find((q) => q.board === sid && q.machine === subs[0]), sat = SQ && planet(S.flows[SQ.flow], 0, 0, 22, false);
     if (sat) { Object.assign(sat, { title: SQ.name, when: SQ.when, sub: SQ }); scene.planets.push(sat); }
@@ -506,11 +506,23 @@ function buildState(sid) {
     for (const a of list) { const seen = new Set([hostAt(a.id, REPLAY.start), hostAt(a.id, REPLAY.end)]);
       for (const e of EVENTS) if (e.task === a.id && e.at >= REPLAY.start && subs.includes(e.flow)) seen.add(hostAt(a.id, e.at));
       for (const f of seen) byPlanet.get(scene.planets.find((p) => p.name === f)).push(a); }
-    for (const [p, l] of byPlanet) { p.outer = l.length ? attach(l, p, p === sat ? p.R + 26 : p.R + 36, p === sat ? 12 : 17, p === sat ? 11 : 15, true, 4) : p.R + 14; p.rim = p.outer + 8; }
+    for (const [p, l] of byPlanet) { const [r0, gap, rg, pad] = p.moon ? [p.R + 10, 9, 8, 4] : p === sat ? [p.R + 26, 12, 11, 14] : [p.R + 36, 17, 15, 14];
+      p.outer = l.length ? attach(l, p, r0, gap, rg, true, 4) : p.R + pad; p.rim = p.outer + (p.moon ? 3 : 8); }
     const hub = scene.hub, deg = Math.PI / 180;
+    // the moons alternate right and left of the primary, then upper and lower, and stack in rows from the band beside the primary outward to
+    // four-fifths of the ring, so the Board paths keep the band and the DAGs keep the space above and below the primary. A row is a line of
+    // type or the moon's orbit, whichever is taller (type holds its screen size, so its height is estimated at the fit zoom), and the ring
+    // grows until every quarter's rows fit
+    const band = hub.rim + 70, quads = [0, 1].flatMap((sd) => { const l = moons.filter((_, i) => i % 2 === sd); return [l.filter((_, i) => i % 2 === 0), l.filter((_, i) => i % 2)]; });
+    let Rm = 440, lh = 20;
+    for (let i = 0; i < 3; i++) { const k = Math.min((0.94 * W) / (2 * (Rm + 260)), (0.94 * H) / (2 * (Rm + 90))); lh = 17 / k;
+      Rm = Math.max(440, ...quads.map((q) => (band + q.reduce((a, p) => a + Math.max(lh, 2 * p.rim + 6), 0)) / 0.8)); }
+    quads.forEach((q, qi) => { const sx = qi < 2 ? 1 : -1, sy = qi % 2 ? 1 : -1, rows = q.map((p) => Math.max(lh, 2 * p.rim + 6)), gap = (0.8 * Rm - band - rows.reduce((a, b) => a + b, 0)) / Math.max(1, q.length);
+      let y = band; q.forEach((p, j) => { y += gap / 2 + rows[j] / 2; place(p, cx0 + sx * Math.sqrt(Rm * Rm - y * y), cy0 + sy * y); y += rows[j] / 2 + gap / 2; }); });
+    scene.moonLH = lh;
     // angles around the primary that already carry something: each skill machine's path, the Board paths fanning in on the left and out on
     // the right, and the primary's own label below it. An entry with a radius blocks only that ring
-    const taken = [...skills.map((_, i) => [at(i), 8 * deg]), [Math.PI, 26 * deg], [0, 26 * deg], [Math.PI / 2, 28 * deg]];
+    const taken = [...moons.map((p) => [Math.atan2(p.y - cy0, p.x - cx0), 8 * deg]), [Math.PI, 26 * deg], [0, 26 * deg], [Math.PI / 2, 28 * deg]];
     const norm = (a) => Math.atan2(Math.sin(a), Math.cos(a)), free = (a, w, r) => taken.every(([c, cw, tr]) => (tr && tr !== r) || Math.abs(norm(a - c)) > cw + w);
     const nearestFree = (want, w, r) => { for (let d = 0; d <= 180; d += 2) for (const s of [1, -1]) { const a = want + s * d * deg; if (free(a, w, r)) return a; } return null; };
     // the sub-state sits as near its state's side of the primary as it can without covering the primary's label, a skill machine or a Board path
@@ -536,8 +548,8 @@ function buildState(sid) {
     const owned = new Map();
     for (const n of Object.keys(crit).sort()) { const ps = [...(launched[n] || [])]; if (ps.length !== 1 || ps[0] === hub || crit[n].some((t) => !t.startsWith("launches "))) continue;
       owned.set(ps[0], [...(owned.get(ps[0]) || []), n]); }
-    for (const [p, ns] of owned) { const th = Math.atan2(hub.y - p.y, hub.x - p.x); p.dagR = p.rim + 14;
-      ns.forEach((n, i) => { const a = th + (i % 2 ? -1 : 1) * (Math.PI / 2 + Math.floor(i / 2) * 0.32), st = (scene.stars[n] = star(n, p.x + Math.cos(a) * p.dagR, p.y + Math.sin(a) * p.dagR));
+    for (const [p, ns] of owned) { const th = Math.atan2(hub.y - p.y, hub.x - p.x), sd = p.x < hub.x ? -1 : 1; if (!p.moon) p.dagR = p.rim + 14; p.owned = ns.length;
+      ns.forEach((n, i) => { const a = th + (i % 2 ? -1 : 1) * (Math.PI / 2 + Math.floor(i / 2) * 0.32), st = (scene.stars[n] = p.moon ? star(n, p.x + sd * (p.rim + 7 + 11 * i), p.y) : star(n, p.x + Math.cos(a) * p.dagR, p.y + Math.sin(a) * p.dagR));
         Object.assign(st, { owned: p, br: 5, tethers: [{ x: p.x, y: p.y, g: { x: p.x, y: p.y, R: p.rim }, crit: crit[n] }] }); delete crit[n]; }); }
     // DAGs with the same ties here (the same Board path, the same machine) fold into one body, as on the Board
     const byTies = new Map(); for (const n of Object.keys(crit).sort()) { const k = crit[n].join("|"); byTies.set(k, [...(byTies.get(k) || []), n]); }
@@ -556,7 +568,8 @@ function buildState(sid) {
       const m = Math.hypot(p1.x - p0.x, p1.y - p0.y) * 0.14;
       scene.hops.push({ from: a.name, to: b.name, back: b === hub, p0, p1, c: { x: (p0.x + p1.x) / 2 - uy * m, y: (p0.y + p1.y) / 2 + ux * m } });
     }
-    const pts = [...scene.planets.flatMap((p) => { const r = p.outer + 50, below = p === hub || p.y > hub.y; return [[p.x - r - (p === hub ? 0 : 60), p.y - r - (below ? 0 : 40)], [p.x + r + (p === hub ? 0 : 60), p.y + r + (below ? 40 : 0)]]; }),
+    const pts = [...moons.map((p) => [p.x + (p.x < hub.x ? -1 : 1) * (p.rim + 30 + (p.owned || 0) * 11 + (textW(p.name, 11.5) * lh) / 17), p.y]),
+      ...scene.planets.filter((p) => !p.moon).flatMap((p) => { const r = p.outer + 50, below = p === hub || p.y > hub.y; return [[p.x - r - (p === hub ? 0 : 60), p.y - r - (below ? 0 : 40)], [p.x + r + (p === hub ? 0 : 60), p.y + r + (below ? 40 : 0)]]; }),
       ...ring.flatMap((s) => [[s.x - 90, s.y - 30], [s.x + 90, s.y + 50]])];
     scene.box = boxOf(pts);
   }
@@ -757,7 +770,7 @@ function hit(x, y) {
   for (const s of scene.dagSteps || []) if (near(s, Math.max(20, px(10)))) return { kind: "step", o: s };
   for (const s of Object.values(scene.stars)) if (near(s, Math.max(s.br, px(10)))) return { kind: "dag", o: s };
   for (const s of Object.values(scene.mStates)) if (near(s, Math.max(stateR(s), px(9)))) return { kind: "state", o: s };
-  for (const p of scene.planets) if (near(p, p.R + 16)) return { kind: "planet", o: p };
+  for (const p of scene.planets) if (near(p, p.moon ? Math.max(p.R + 6, px(10)) : p.R + 16)) return { kind: "planet", o: p };
   if (scene.sun && near(scene.sun, scene.sun.r + 8)) return { kind: "sun", o: scene.sun };
   for (const g of scene.sats) if (near(g, g.R)) return { kind: "sat", o: g };
   for (const m of scene.moons) if (near(m, Math.max(m.r + 6, px(10)))) return { kind: "moon", o: m };
@@ -1009,6 +1022,10 @@ function drawPlanets() {
     const hot = isHot("planet", p), mv = moving(p.name);
     if (p.anchor) { cx.strokeStyle = rgba("#a78bfa", 0.4); cx.setLineDash([2, 4]); cx.lineWidth = 1; cx.beginPath(); cx.moveTo(p.anchor.x, p.anchor.y + stateR(p.anchor) + 26); cx.lineTo(p.x, p.y - p.R - 18); cx.stroke(); cx.setLineDash([]); }
     for (const R of p.rings || []) circle(p.x, p.y, R, rgba("#c4b5fd", 0.26), 1, [1.5, 4]); // the task orbits around this machine
+    // a skill moon: a still disc, brighter while it has sessions and ringed in amber while one moves, named beside it away from the primary,
+    // past the DAGs that orbit it; hover adds its states and sessions
+    if (p.moon) { const sd = p.x < scene.hub.x ? -1 : 1; disc(p.x, p.y, p.R, "#c084fc", hot, false, p.n ? 0.32 : 0.14); if (mv.length) circle(p.x, p.y, p.R + 4, rgba(ACT, 0.85), 1.5);
+      cx.letterSpacing = `${0.5 / K}px`; text(p.name, p.x + sd * (p.rim + 8 + (p.owned || 0) * 11), p.y, 11.5 / K, rgba("#d8c8f5", hot ? 0.95 : 0.6), sd < 0 ? "right" : "left", 300); cx.letterSpacing = "0px"; continue; }
     dot(p.x, p.y, p.R + 14, "rgba(10,14,26,0.85)");
     if (mv.length) { const g = cx.createRadialGradient(p.x, p.y, p.R + 14, p.x, p.y, p.R + 30); g.addColorStop(0, rgba(ACT, 0.2)); g.addColorStop(1, rgba(ACT, 0)); cx.fillStyle = g; cx.beginPath(); cx.arc(p.x, p.y, p.R + 30, 0, TAU); cx.arc(p.x, p.y, p.R + 14, 0, TAU, true); cx.fill(); }
     circle(p.x, p.y, p.R + 14, mv.length ? rgba(ACT, 0.6) : rgba("#c084fc", hot ? 0.9 : p.n ? 0.45 : 0.22), hot ? 2 : 1.2);
