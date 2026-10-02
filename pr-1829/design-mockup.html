@@ -198,8 +198,8 @@ const SUBSTATES = Object.entries(CHILD).flatMap(([m, c]) => Object.entries(c).fi
 const LATEST = {};
 for (const f of Object.values(S.flows)) if (f.name !== "board") for (const s of f.agents) if (s.task && (!LATEST[s.task] || s.active > LATEST[s.task].active)) LATEST[s.task] = { ...s, flow: f.name };
 const latestSession = (id) => LATEST[id];
-// a state shows its primary machine and at most PER more lifecycle machines as moons; past that a pager moon closes the rows and steps
-// through the rest, page by page, on the Board and the state level alike. The tasks working a machine on another page orbit the pager; its DAGs wait for its page. A paged
+// a state shows its primary machine and at most PER more lifecycle machines as moons; past that a pager moon at the bottom of the ring,
+// named below it, steps through the rest, page by page, on the Board and the state level alike. The tasks working a machine on another page orbit the pager; its DAGs wait for its page. A paged
 // state is sized for its fullest page, so stepping through the pages never resizes it or moves what is around it
 const PER = 12, PAGE = {};
 function paged(sid, list, at) { const pages = Math.ceil(list.length / PER); if (pages <= 1) return { shown: list, hidden: [], pager: null };
@@ -384,11 +384,12 @@ function buildBoard() {
       const size = (n) => (n ? rings(n, 17, 9, 8).outer : 9), sizeS = (n) => (n ? rings(n, 14, 9, 8).outer : 6);
       const slot = (n) => { const ss = qs(n).map((q) => sizeS(all.filter((a) => subOf(a) === q).length));
         return { R: Math.max(size(all.filter((a) => machOf(a) === n && !subOf(a)).length), ...ss), w: ss.reduce((e, r) => e + 8 + 2 * r, 0) + textW(label(n), 10.5) * F }; };
-      const every = everyPage(st.id, g.subs.slice(1), pg), pages = every.map((q) => [slot(g.subs[0]), ...q.shown.map(slot),
-        ...(q.pager ? [{ R: size(all.filter((a) => q.hidden.includes(machOf(a))).length), w: textW(q.pager.title, 10.5) * F }] : [])]);
-      const slots = Math.max(...pages.map((l) => l.length)), per = [Math.ceil(slots / 2), Math.floor(slots / 2)], sizes = pages.flat().map((q) => q.R);
-      const sides = [rest.filter((_, i) => i % 2 === 0), rest.filter((_, i) => i % 2)], rowH = Math.max(16 * F, ...sizes.map((r) => 2 * r + 6)), mR = Math.max(...sizes);
-      g.moonR = Math.max(outer + 10 + mR, (rowH * (per[0] + 1)) / 2); g.R = g.moonR + 8 + mR;
+      const every = everyPage(st.id, g.subs.slice(1), pg), pages = every.map((q) => [slot(g.subs[0]), ...q.shown.map(slot)]);
+      const pR = Math.max(0, ...every.filter((q) => q.pager).map((q) => size(all.filter((a) => q.hidden.includes(machOf(a))).length))), rows = rest.filter((m) => !m.pager);
+      const slots = Math.max(...pages.map((l) => l.length)), per = [Math.ceil(slots / 2), Math.floor(slots / 2)], sizes = [...pages.flat().map((q) => q.R), ...(pR ? [pR] : [])];
+      const sides = [rows.filter((_, i) => i % 2 === 0), rows.filter((_, i) => i % 2)], rowH = Math.max(16 * F, ...sizes.map((r) => 2 * r + 6)), mR = Math.max(...sizes);
+      // the pager sits at the bottom of the ring with its name below it, so the ring's reach downward makes room for that line
+      g.moonR = Math.max(outer + 10 + mR, (rowH * (per[0] + 1)) / 2); g.R = Math.max(g.moonR + 8 + mR, pR ? g.moonR + pR + 24 * F : 0);
       if (pg.pager) { g.reach = [0, 1].map((sd) => g.moonR + mR + 10 + Math.max(...pages.flatMap((l) => l.filter((_, i) => i % 2 === sd)).map((q) => q.w)));
         // its name columns span every slot of the fullest page, from the innermost moon out to that reach
         g.cols = [0, 1].map((sd) => { const ys = Array.from({ length: per[sd] }, (_, j) => -g.moonR + ((j + 1) * 2 * g.moonR) / (per[sd] + 1)), sg = sd ? -1 : 1;
@@ -397,6 +398,7 @@ function buildBoard() {
       const put = (m, x, y) => { scene.moons.push(Object.assign(m, { x, y })); const sg = x < g.x - 1 ? -1 : 1; let c = m.R, prev = m;
         for (const b of m.chain) { c += 8; Object.assign(b, { x: x + sg * (c + b.R), y, prev }); c += 2 * b.R; prev = b; } m.ext = c - m.R; };
       sides.forEach((l, sd) => l.forEach((m, j) => { const y = -g.moonR + ((j + 1) * 2 * g.moonR) / (per[sd] + 1); put(m, g.x + (sd ? -1 : 1) * Math.sqrt(g.moonR ** 2 - y * y), g.y + y); }));
+      for (const m of rest) if (m.pager) put(m, g.x, g.y + g.moonR);
       g.sat = rest[0].chain[0]; } // the primary's sub-state holds the state's own self-loop (PR_OPENED)
     scene.galaxies[st.id] = g;
   }
@@ -480,7 +482,8 @@ function buildBoard() {
   const bodies = Object.keys(anchors).map((n) => { const g = glyph(dagOf(n)), home = homes[n];
     return { n, x: home.x, y: home.y, home, hw: hwOf(n), up: Math.max(g.h / 2 + 10, g.br + 6), dn: Math.max(g.h / 2, g.br) + 16 * F + 12, k: 0.03 }; });
   const cols = {};
-  for (const m of scene.moons) { const left = m.x < m.parent.x - 1, w = m.R + m.ext + 10 + textW(m.label, 10.5) * F, b = { x0: left ? m.x - w : m.x - m.R, x1: left ? m.x + m.R : m.x + w, y0: m.y - 10 * F, y1: m.y + 10 * F }, k = `${m.parent.id}${left}`, c = cols[k];
+  for (const m of scene.moons) { const left = m.x < m.parent.x - 1, w = m.R + m.ext + 10 + textW(m.label, 10.5) * F, hw = (textW(m.label, 10.5) * F) / 2 + 4;
+    const b = m.pager ? { x0: m.x - hw, x1: m.x + hw, y0: m.y - m.R, y1: m.y + m.R + 24 * F } : { x0: left ? m.x - w : m.x - m.R, x1: left ? m.x + m.R : m.x + w, y0: m.y - 10 * F, y1: m.y + 10 * F }, k = `${m.parent.id}${m.pager ? "p" : left}`, c = cols[k];
     cols[k] = c ? { x0: Math.min(c.x0, b.x0), x1: Math.max(c.x1, b.x1), y0: Math.min(c.y0, b.y0), y1: Math.max(c.y1, b.y1) } : b; }
   for (const g of Object.values(scene.galaxies)) if (g.cols) g.cols.forEach((c, sd) => (cols[`${g.id}${!!sd}`] = { x0: g.x + c.x0, x1: g.x + c.x1, y0: g.y + c.y0, y1: g.y + c.y1 }));
   const names = Object.values(cols);
@@ -565,12 +568,12 @@ function buildState(sid) {
     // four-fifths of the ring, so the Board paths keep the band and the DAGs keep the space above and below the primary. A row is a line of
     // type or the moon's orbit, whichever is taller (type holds its screen size, so its height is estimated at the fit zoom), and the ring
     // grows until every quarter's rows fit
-    const band = hub.rim + 70, quads = [0, 1].flatMap((sd) => { const l = moons.filter((_, i) => i % 2 === sd); return [l.filter((_, i) => i % 2 === 0), l.filter((_, i) => i % 2)]; });
+    const band = hub.rim + 70, rowed = moons.filter((p) => !p.pager), quads = [0, 1].flatMap((sd) => { const l = rowed.filter((_, i) => i % 2 === sd); return [l.filter((_, i) => i % 2 === 0), l.filter((_, i) => i % 2)]; });
     // the ring is sized for the fullest page: each page's moons are measured with the orbits they would carry, so paging never resizes it
     // a row holds a moon and its sub-states, so it is as tall as the largest of their orbits
     const rimOf = (n) => (n ? rings(n, 19, 9, 8).outer + 3 : 16), rimS = (n) => (n ? rings(n, 16, 9, 8).outer + 3 : 13), load = (fs) => visits.filter((v) => fs.some((f) => v.has(f))).length;
     const rowRim = (n) => Math.max(rimOf(load([n])), ...qs(n).map((q) => rimS(load([key(q)]))));
-    const pageQuads = everyPage(sid, subs.slice(1), pg).flatMap((q) => { const rims = [...q.shown.map(rowRim), ...(q.pager ? [rimOf(load(keys(q.hidden)))] : [])];
+    const pageQuads = everyPage(sid, subs.slice(1), pg).flatMap((q) => { const rims = q.shown.map(rowRim);
       return [0, 1].flatMap((sd) => { const l = rims.filter((_, i) => i % 2 === sd); return [l.filter((_, i) => i % 2 === 0), l.filter((_, i) => i % 2)]; }); });
     let Rm = 440, lh = 20;
     for (let i = 0; i < 3; i++) { const k = Math.min((0.94 * W) / (2 * (Rm + 260)), (0.94 * H) / (2 * (Rm + 90))); lh = 17 / k;
@@ -578,6 +581,7 @@ function buildState(sid) {
     quads.forEach((q, qi) => { const sx = qi < 2 ? 1 : -1, sy = qi % 2 ? 1 : -1, rows = q.map((p) => Math.max(lh, 2 * Math.max(p.rim, ...(p.chain || []).map((b) => b.rim)) + 6)), gap = (0.8 * Rm - band - rows.reduce((a, b) => a + b, 0)) / Math.max(1, q.length);
       let y = band; q.forEach((p, j) => { y += gap / 2 + rows[j] / 2; place(p, cx0 + sx * Math.sqrt(Rm * Rm - y * y), cy0 + sy * y); y += rows[j] / 2 + gap / 2; }); });
     scene.moonLH = lh;
+    for (const p of moons) if (p.pager) place(p, cx0, cy0 + 0.8 * Rm); // the pager sits at the bottom of the ring, level with the lowest rows, named below it
     for (const p of moons) { const sd = p.x < cx0 ? -1 : 1; let c = clear(p), prev = p;
       for (const b of p.chain || []) { c += 8; place(b, p.x + sd * (c + b.rim), p.y); b.prev = prev; c += 2 * b.rim; prev = b; } p.ext = c - clear(p); }
     // angles around the primary that already carry something: each skill machine's path, the Board paths fanning in on the left and out on
@@ -630,7 +634,7 @@ function buildState(sid) {
       const m = Math.hypot(p1.x - p0.x, p1.y - p0.y) * 0.14;
       scene.hops.push({ from: a.name, to: b.name, back: b === hub, p0, p1, c: { x: (p0.x + p1.x) / 2 - uy * m, y: (p0.y + p1.y) / 2 + ux * m } });
     }
-    const pts = [...moons.map((p) => [p.x + (p.x < hub.x ? -1 : 1) * (past(p) + 14 + (p.owned || 0) * OWNED + (textW(p.label || p.name, 11.5) * lh) / 17), p.y]),
+    const pts = [...moons.map((p) => (p.pager ? [p.x, p.y + p.rim + (30 * lh) / 17] : [p.x + (p.x < hub.x ? -1 : 1) * (past(p) + 14 + (p.owned || 0) * OWNED + (textW(p.label || p.name, 11.5) * lh) / 17), p.y])),
       ...scene.planets.filter((p) => !p.moon).flatMap((p) => { const r = p.outer + 50, below = p === hub || p.y > hub.y; return [[p.x - r - (p === hub ? 0 : 60), p.y - r - (below ? 0 : 40)], [p.x + r + (p === hub ? 0 : 60), p.y + r + (below ? 40 : 0)]]; }),
       ...ring.flatMap((s) => [[s.x - 90, s.y - 30], [s.x + 90, s.y + 50]])];
     scene.box = boxOf(pts);
@@ -987,9 +991,10 @@ function drawMoons() {
   for (const m of scene.moons) { const hot = isHot("moon", m), fs = m.pager ? m.pager.hidden : [m.name], mv = fs.flatMap(moving).length, busy = fs.some((n) => S.flows[n].agents.length);
     drawTrackRings(m, "#c084fc"); machine(m.x, m.y, m.r, hot, busy ? 0.32 : 0.14, !!m.pager);
     if (mv) circle(m.x, m.y, m.r + 4, rgba(ACT, 0.85), 1.5);
-    // each moon is named beside it, on the side away from its state, past its chain of sub-states
-    const left = m.x < m.parent.x - 1, sz = 10.5 / K; cx.letterSpacing = `${0.5 / K}px`;
-    text(m.label, m.x + (left ? -1 : 1) * (m.R + m.ext + 10), m.y, sz, rgba("#d8c8f5", hot ? 0.95 : 0.6), left ? "right" : "left", 300); cx.letterSpacing = "0px"; }
+    // each moon is named beside it, on the side away from its state, past its chain of sub-states; the pager is named below it
+    const left = m.x < m.parent.x - 1, sz = 10.5 / K, col = rgba("#d8c8f5", hot ? 0.95 : 0.6); cx.letterSpacing = `${0.5 / K}px`;
+    if (m.pager) text(m.label, m.x, m.y + m.R + 12 / K, sz, col, "center", 300); else text(m.label, m.x + (left ? -1 : 1) * (m.R + m.ext + 10), m.y, sz, col, left ? "right" : "left", 300);
+    cx.letterSpacing = "0px"; }
 }
 function drawSats() {
   for (const s of scene.sats) { const hot = isHot("sat", s); stem(s.prev, s, s.color, hot); disc(s.x, s.y, s.r, s.color, hot, false, 0.22); drawTrackRings(s, s.color); }
@@ -1089,7 +1094,9 @@ function drawPlanets() {
     // past the DAGs that orbit it; hover adds its states and sessions
     if (p.subState) { stem(p.prev, p, "#e879f9", hot); disc(p.x, p.y, p.R, "#e879f9", hot, false, p.n ? 0.32 : 0.22); continue; }
     if (p.moon) { const sd = p.x < scene.hub.x ? -1 : 1; machine(p.x, p.y, p.R, hot, p.n ? 0.32 : 0.14, !!p.pager); if (mv.length) circle(p.x, p.y, p.R + 4, rgba(ACT, 0.85), 1.5);
-      cx.letterSpacing = `${0.5 / K}px`; text(p.label || p.name, p.x + sd * (past(p) + (p.owned || 0) * OWNED), p.y, 11.5 / K, rgba("#d8c8f5", hot ? 0.95 : 0.6), sd < 0 ? "right" : "left", 300); cx.letterSpacing = "0px"; continue; }
+      cx.letterSpacing = `${0.5 / K}px`; const col = rgba("#d8c8f5", hot ? 0.95 : 0.6);
+      if (p.pager) text(p.name, p.x, p.y + clear(p) + 12 / K, 11.5 / K, col, "center", 300); else text(p.label || p.name, p.x + sd * (past(p) + (p.owned || 0) * OWNED), p.y, 11.5 / K, col, sd < 0 ? "right" : "left", 300);
+      cx.letterSpacing = "0px"; continue; }
     dot(p.x, p.y, p.R + 14, "rgba(10,14,26,0.85)");
     if (mv.length) { const g = cx.createRadialGradient(p.x, p.y, p.R + 14, p.x, p.y, p.R + 30); g.addColorStop(0, rgba(ACT, 0.2)); g.addColorStop(1, rgba(ACT, 0)); cx.fillStyle = g; cx.beginPath(); cx.arc(p.x, p.y, p.R + 30, 0, TAU); cx.arc(p.x, p.y, p.R + 14, 0, TAU, true); cx.fill(); }
     circle(p.x, p.y, p.R + 14, mv.length ? rgba(ACT, 0.6) : rgba("#c084fc", hot ? 0.9 : p.n ? 0.45 : 0.22), hot ? 2 : 1.2);
