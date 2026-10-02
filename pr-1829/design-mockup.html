@@ -114,6 +114,14 @@ body:has(#nav:hover) #crumbs, body:has(#nav:focus-within) #crumbs { opacity: 0; 
 <script>
 "use strict";
 const S = window.SNAP, TAU = Math.PI * 2, TZ = "America/Phoenix";
+// ?stress=N, for design review only: N more lifecycle machines under In Progress, each launched by two DAGs, and N/2 more DAGs that write
+// Board events, so a review can see how the layout holds as the system grows
+const STRESS = +new URLSearchParams(location.search).get("stress") || 0, STRESS_FLOWS = [], STRESS_DAGS = { launch: [], board: [] };
+if (STRESS) { const base = S.flows["auditing-docs"], d0 = S.dags.find((d) => d.name === "board-autopilot"), evs = ["CLAIM", "REVIEW", "DEFER", "MERGED", "DEPS_DONE", "PARK_ON_TASK", "SEND_BACK", "RESUME"];
+  for (let i = 1; i <= STRESS; i++) { const n = `machine-${String(i).padStart(2, "0")}`; S.flows[n] = { ...base, name: n, agents: [] }; STRESS_FLOWS.push(n);
+    for (const k of [1, 2]) { const dn = `${n}-dag-${k}`; S.dags.push({ ...d0, name: dn }); S.launches.push({ dag: dn, skill: n, flow: n }); STRESS_DAGS.launch.push(dn); } }
+  for (let i = 1; i <= Math.ceil(STRESS / 2); i++) { const dn = `board-writer-${String(i).padStart(2, "0")}`; S.dags.push({ ...d0, name: dn }); STRESS_DAGS.board.push(dn);
+    (S.writers[evs[i % evs.length]] ||= []).push({ actor: dn, trigger: "stress" }); } }
 const BOARD_COLOR = { new: "#94a3b8", ready: "#60a5fa", waiting: "#fbbf24", blocked: "#fb7185", in_progress: "#a78bfa",
   review: "#e879f9", deferred: "#64748b", done: "#34d399", completed: "#2dd4bf", archived: "#475569" };
 const DAG_COLOR = { running: "#fbbf24", queued: "#93c5fd", succeeded: "#34d399", failed: "#fb7185", partially_succeeded: "#fcd34d",
@@ -134,6 +142,7 @@ const GROUPS = [
   { id: "retrieval", name: "Retrieval & tags", dags: ["graph-refresh", "memory-reindex", "rag-audit-nominations", "rag-metrics", "semantic-tag-merges", "tag-analytics", "tag-optimizer", "tag-performers", "tag-signals"] },
   { id: "ops", name: "Host ops & backups", dags: ["cleanup-workspace", "grafana-db-snapshot", "grafana-rule-health", "healthcheck", "postgres-backup", "postgres-restore-verify", "superseded-images-sweep", "testcontainers-sweep"] },
 ];
+GROUPS.find((g) => g.id === "agents").dags.push(...STRESS_DAGS.launch); GROUPS.find((g) => g.id === "board").dags.push(...STRESS_DAGS.board);
 const GTINT = { "Delivery & CI": "#7dd3fc", Board: "#c4b5fd", "Agent jobs & evals": "#f0abfc", "Retrieval & tags": "#86efac", "Host ops & backups": "#fcd34d" };
 // Operator-approved run-safe set (idempotent re-runs); the build slice declares this per DAG.
 const RUNNABLE = new Set(["whole-repo-gate", "healthcheck", "graph-refresh", "memory-reindex", "rag-metrics", "tag-analytics", "grafana-rule-health",
@@ -162,7 +171,7 @@ function row(names, cx, y, gap = 26) {
 
 // ---- drill-down levels: Board -> a state's lifecycle system -> one machine's graph ----
 // The build slice derives SUBS and CHILD from lifecycle_machines.board_links (SUBFLOW) and the machine registry.
-const SKILLS = ["authoring-skills", "auditing-infrastructure", "auditing-docs", "realigning-stale-docs", "running-skill-evals"].filter((n) => S.flows[n]);
+const SKILLS = ["authoring-skills", "auditing-infrastructure", "auditing-docs", "realigning-stale-docs", "running-skill-evals", ...STRESS_FLOWS].filter((n) => S.flows[n]);
 const SUBS = { in_progress: ["in-progress", ...SKILLS] };
 // A cue: a DAG that runs on the same trigger as a Board event's writer but writes no lane itself. A merge to main submits main-follow, which
 // writes MERGED (Review -> Done), and beside it apply-on-merge and graph-refresh. Declared here for the mockup; the build declares it in board_links.
