@@ -208,11 +208,11 @@ const merged = (trs) => { const by = new Map();
     m.events.push(t.event); for (const w of S.writers[t.event] || []) m.writers.push({ ...w, event: t.event }); }
   return [...by.values()].map((m) => ({ ...m, event: m.events.join(" · ") })); };
 const hiddenKinds = new Set(JSON.parse(localStorage.getItem("fv.hidden") || "[]"));
-let stack = JSON.parse(localStorage.getItem("fv.path") || "null") || [{ kind: "board" }];
+let stack = (JSON.parse(localStorage.getItem("fv.path") || "null") || []).filter((l) => l.kind !== "dag"); if (!stack.length) stack = [{ kind: "board" }];
 const level = () => stack[stack.length - 1];
 const pathKey = () => stack.map((l) => l.id || l.flow || l.dag || l.kind).join("/");
 const stateName = (id) => board.machine.states.find((s) => s.id === id)?.name || id;
-const levelName = (l) => (l.kind === "board" ? "Board" : l.kind === "dags" ? "DAGs" : l.kind === "state" ? stateName(l.id) : l.kind === "dag" ? l.dag : l.flow);
+const levelName = (l) => (l.kind === "board" ? "Board" : l.kind === "dags" ? "DAGs" : l.kind === "state" ? stateName(l.id) : l.kind === "fold" ? `${l.dags.length} DAGs${l.path ? ` · ${stateName(l.path[0])} → ${stateName(l.path[1])}` : ""}` : l.flow);
 
 // ---- activity. Mockup: the last hour of session transitions replays at 60x on a loop.
 // Build: the same drawing, fed by the live event stream instead of the replay clock ----
@@ -244,38 +244,38 @@ let scene;
 function build() {
   const l = level();
   scene = { w: 2460, h: 1340, galaxies: {}, bEdges: [], tasks: [], sessions: [], mStates: {}, mEdges: [], planets: [], stars: {}, groups: [], sun: null, flow: null, hub: null, hops: [], entries: [], exits: [], sats: [], moons: [], hangar: null };
-  if (l.kind === "board") buildBoard(); else if (l.kind === "dags") buildDags(); else if (l.kind === "state") buildState(l.id); else if (l.kind === "dag") buildDag(l.dag); else buildMachine(l.flow);
+  if (l.kind === "board") buildBoard(); else if (l.kind === "dags") buildDags(); else if (l.kind === "state") buildState(l.id); else if (l.kind === "fold") buildFold(l); else buildMachine(l.flow);
 }
 
-// DAG level: one DAG's own step graph, laid out for reading rather than zoomed to. Steps by dependency depth, curved links with arrows,
-// a step's name under its node, hover for the detail; the DAG panel (Run now on the declared-safe set) opens beside it.
-function buildDag(name) {
-  const o = star(name, 0, 0), steps = o.steps, by = Object.fromEntries(steps.map((s) => [s.name, s])), depth = {};
-  const dep = (n) => (depth[n] ??= 1 + Math.max(-1, ...by[n].depends.filter((x) => by[x] && x !== n).map(dep)));
-  steps.forEach((s) => dep(s.name));
-  const cols = {}; steps.forEach((s) => (cols[depth[s.name]] ||= []).push(s));
-  const L = Math.max(0, ...Object.keys(cols).map(Number)) + 1, x0 = 170, x1 = 1230, top = 130, bot = 870, pos = {};
-  Object.assign(scene, { w: 1800, h: 1000, dagObj: o, dagSteps: [], dagLinks: [] });
-  for (const [l, list] of Object.entries(cols)) list.forEach((s, i) => { pos[s.name] = { ...s, x: L === 1 ? (x0 + x1) / 2 : x0 + ((x1 - x0) * l) / (L - 1), y: (top + bot) / 2 + (i - (list.length - 1) / 2) * Math.min(96, (bot - top) / Math.max(1, list.length - 1)) }; scene.dagSteps.push(pos[s.name]); });
-  if (!steps.length) scene.dagSteps.push({ name, status: o.status, depends: [], x: (x0 + x1) / 2, y: 500 });
-  scene.dagLinks = steps.flatMap((s) => s.depends.filter((x) => pos[x]).map((x) => [pos[x], pos[s.name]]));
-  // the view centres the graph in the canvas left of the panel; the title sits over the graph
-  const ys = scene.dagSteps.map((s) => s.y); scene.title = { x: (x0 + x1) / 2, y: Math.min(...ys) - 90 };
-  // the tasks of the sessions this DAG launched orbit the step that runs the agent (the only step, else the last)
-  const host = scene.dagSteps.find((s) => s.kind === "agent") || scene.dagSteps.at(-1), bodies = dagBodies(name);
-  const outer = bodies.length ? attach(bodies, host, 40, 14, 13, true, 4) : 0;
-  scene.box = [Math.min(x0 - 90, host.x - outer - 40), Math.min(scene.title.y - 30, host.y - outer - 40), Math.max(x1 + 90, host.x + outer + 40), Math.max(...ys, host.y + outer) + 60]; scene.inset = 420;
-  openDagPanel(o);
+// Fold level: the DAGs folded into one body, as stars over the Board path they write. The path runs between its two states with each
+// event they write (or run beside) marked on it, and every DAG's tethers to its events stay drawn here, brighter on hover.
+// A criterion's path and event read from its text: "<dag>: writes EVENT (From → To)" or "... beside EVENT (From → To)".
+const CRIT = /(writes|beside) ([A-Z_]+) \((.+?) → (.+?)\)/;
+const stateId = (name) => board.machine.states.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id;
+function foldPath(crit) {
+  const n = {}; for (const t of crit) { const m = t.match(CRIT), a = m && stateId(m[3]), b = m && stateId(m[4]); if (a && b && a !== b) n[`${a}>${b}`] = (n[`${a}>${b}`] || 0) + 1; }
+  const k = Object.keys(n).sort((x, y) => n[y] - n[x])[0]; return k ? k.split(">") : null;
+}
+function buildFold(l) {
+  const A = W / H, w = 1800, h = Math.round(w / A), y = h * 0.62, end = (id, x) => { const st = board.machine.states.find((s) => s.id === id); return { id, name: st.name, final: st.final, color: BOARD_COLOR[id], x, y, r: 34 }; };
+  Object.assign(scene, { w, h });
+  const ties = (n) => l.crit.filter((t) => t.startsWith(`${n}: `)).map((t) => ({ text: t.slice(n.length + 2), m: t.match(CRIT) }));
+  const f = (scene.fold = { dags: l.dags, events: [] });
+  if (l.path) { f.a = end(l.path[0], 360); f.b = end(l.path[1], w - 360); f.p0 = { x: f.a.x + f.a.r + 8, y }; f.p1 = { x: f.b.x - f.b.r - 8, y };
+    const on = (m) => m && stateId(m[3]) === l.path[0] && stateId(m[4]) === l.path[1];
+    const evs = [...new Set(l.dags.flatMap((n) => ties(n).filter((t) => on(t.m)).map((t) => t.m[2])))];
+    f.events = evs.map((name, i) => ({ name, x: f.p0.x + ((f.p1.x - f.p0.x) * (i + 1)) / (evs.length + 1), y })); }
+  // the DAGs run in the order of the middle of the events each ties to along the path, so their tethers do not cross
+  const at = (n) => { const is = f.events.map((e, i) => (ties(n).some((t) => t.m?.[2] === e.name) ? i : -1)).filter((i) => i >= 0); return is.length ? is.reduce((a, b) => a + b) / is.length : Infinity; };
+  const names = [...l.dags].sort((a, b) => at(a) - at(b) || a.localeCompare(b)), stars = row(names, w / 2, y - 280, 170);
+  for (const st of stars) { const ts = ties(st.name), crit = ts.map((t) => t.text);
+    st.tethers = f.events.filter((e) => ts.some((t) => t.m?.[2] === e.name)).map((e) => ({ x: e.x, y: e.y, ev: e.name, cue: ts.every((t) => t.m?.[2] !== e.name || t.m[1] === "beside"), crit }));
+    if (!st.tethers.length) st.tethers = [{ x: st.x, y: st.y, crit, none: true }]; }
+  scene.groups.push({ name: "", head: false, stars });
+  const xs = [...stars.map((q) => q.x), f.a?.x ?? w / 2, f.b?.x ?? w / 2];
+  scene.box = [Math.min(...xs) - 140, y - 360, Math.max(...xs) + 140, y + 110];
 }
 
-// the bodies that orbit a DAG's step: one per task (else per session) of the unattended sessions in the machines it launches.
-// A launch naming no live machine falls back to the machine named for its skill (dependency-update-investigation runs investigating-dependency-updates)
-function dagBodies(name) {
-  const flows = S.launches.filter((l) => l.dag === name).map((l) => (S.flows[l.flow] ? l.flow : S.flows[l.skill] ? l.skill : null)).filter(Boolean), out = new Map();
-  for (const f of new Set(flows)) for (const a of S.flows[f].agents) if (a.kind === "unattended") { const t = a.task && board.agents.find((b) => b.id === a.task);
-    out.set(a.task || a.id, t || { id: a.id.slice(0, 8), title: a.title || `${f} session`, state: a.state, model: a.model, labels: [] }); }
-  return [...out.values()];
-}
 // orbit rings around a host: ring 0 at r0, each further ring ringGap out, bodies about `gap` apart; a ring is added when the last one fills
 function rings(n, r0, gap, ringGap) {
   const out = [], radii = []; let i = 0;
@@ -812,7 +812,6 @@ function hit(x, y) {
   const near = (o, r) => Math.hypot(o.x - x, o.y - y) < r;
   for (const s of scene.sessions) if (s._x !== undefined && Math.hypot(s._x - x, s._y - y) < Math.max(4, px(7))) return { kind: "session", o: s };
   for (const t of scene.tasks) if (!t.gone && near(t, Math.max(t.big ? 7 : 5, px(7)))) return { kind: "task", o: t };
-  for (const s of scene.dagSteps || []) if (near(s, Math.max(20, px(10)))) return { kind: "step", o: s };
   for (const s of Object.values(scene.stars)) if (near(s, Math.max(s.br, px(10)))) return { kind: "dag", o: s };
   for (const s of Object.values(scene.mStates)) if (near(s, Math.max(stateR(s), px(9)))) return { kind: "state", o: s };
   for (const p of scene.planets) if (near(p, p.moon ? Math.max(p.R + 6, px(10)) : p.R + 16)) return { kind: "planet", o: p };
@@ -843,9 +842,8 @@ function tipHtml({ kind, o }) {
   if ((kind === "moon" || kind === "planet") && o.pager) return `<div class="k">page ${o.pager.page + 1} of ${o.pager.pages} · click for the next page</div><div class="n">${o.pager.hidden.length} more lifecycle machines</div>${o.pager.hidden.slice(0, 12).map(esc).join("<br>")}${o.pager.hidden.length > 12 ? "<br>…" : ""}`;
   if (kind === "task") return `<div class="k">task · ${esc(stateName(o.state))}${o.host.states || o.host.depends ? ` · orbiting ${esc(o.host.title || o.host.name)}` : ""} · click for details</div><div class="n">${esc(o.id)}</div>${esc(o.title)}<div class="k">${esc(o.model)} · ${o.labels.map(esc).join(", ")}</div>`;
   if (kind === "session") return `<div class="k">${esc(o.kind)} session · ${esc(o.flow)}</div><div class="n">${esc(o.task || o.title)}</div><div class="k">${esc(o._state || o.state)} · ${o.steps} steps · ${esc(o.model)} · last active ${hhmm(o.active)} MST</div>`;
-  if (kind === "dag" && o.fold) return `<div class="k">${o.fold.length} DAGs on one path · click to list them</div><div class="n">${o.fold.map(esc).join("<br>")}</div><div class="k">${o.tethers[0].crit.map(esc).join("<br>")}</div>`;
+  if (kind === "dag" && o.fold) return `<div class="k">${o.fold.length} DAGs on one path · click to open them</div><div class="n">${o.fold.map(esc).join("<br>")}</div><div class="k">${o.tethers[0].crit.map(esc).join("<br>")}</div>`;
   if (kind === "dag") return `<div class="k">DAG · ${esc(o.group)} · ${esc(o.status)}${o.runnable ? " · runnable" : ""}</div><div class="n">${esc(o.name)}</div>${o.tethers?.[0]?.crit ? `<div class="k">${o.tethers[0].crit.map(esc).join("<br>")}</div>` : ""}${o.steps.length} step${o.steps.length === 1 ? "" : "s"}: ${o.steps.map((s) => esc(s.name)).join(" → ")}${o.finishedAt ? `<div class="k">last run ${hhmm(Date.parse(o.finishedAt) / 1000)} MST</div>` : ""}`;
-  if (kind === "step") return `<div class="k">${esc(scene.dagObj.name)} step${o.kind ? ` · ${esc(o.kind)}` : ""} · ${esc(o.status.replace(/_/g, " "))}</div><div class="n">${esc(o.name)}</div>${o.depends.length ? `<span class="k">after</span> ${o.depends.map(esc).join(", ")}` : '<span class="k">first step</span>'}`;
   if (kind === "galaxy") return `<div class="k">Board state · click to open</div><div class="n">${esc(o.name)}</div>${o.n} tasks${o.subs.length ? ` · ${o.subs.length} lifecycle machines inside` : ""}`;
   if (kind === "sun") return `<div class="k">Board state</div><div class="n">${esc(o.name)}</div>${o.n} tasks${scene.planets.length ? ` · ${scene.planets.length} lifecycle machines orbiting it` : ""}`;
   if (kind === "state") return `<div class="k">${esc(o.flow)} state</div><div class="n">${esc(o.name)}</div>${o.n} session${o.n === 1 ? "" : "s"} here at snapshot${o.loops?.length ? `<div class="k">stays here on ${o.loops.map(esc).join(", ")}</div>` : ""}`;
@@ -860,12 +858,9 @@ function tipHtml({ kind, o }) {
   return `<div class="k">Board transition${o.events?.length > 1 ? `s (${o.events.length})` : ""} · ${esc(stateName(o.source))} → ${esc(stateName(o.target))}</div><div class="n">${(o.events || [o.event]).map(esc).join("<br>")}</div>${o.writers.length ? o.writers.map(writerLine).join("<br>") : '<span class="k">no writer declared</span>'}`;
 }
 
-// ---- click: drill into states, machines and DAGs, open panels for tasks and sessions ----
+// ---- click: drill into states, machines and DAG folds, open panels for tasks and sessions ----
 const panel = document.getElementById("panel");
 function openDagPanel(o) {
-  if (o.fold) { panel.innerHTML = `<span class="x">✕</span><div class="k">${o.fold.length} DAGs on one Board path</div><h2>${esc(o.name)}</h2>
-    <table>${o.fold.map((n) => { const d = dagBy[n]; return `<tr><td>${esc(n)}</td><td><span style="color:${DAG_COLOR[d.status] || "#94a3b8"}">${esc(d.status)}</span>${d.finishedAt ? ` · ${hhmm(Date.parse(d.finishedAt) / 1000)} MST` : ""}<br><span class="k">${o.tethers[0].crit.filter((t) => t.startsWith(`${n}: `)).map((t) => esc(t.slice(n.length + 2))).join("<br>")}</span></td></tr>`; }).join("")}</table>`;
-    panel.classList.add("open"); panel.querySelector(".x").onclick = () => panel.classList.remove("open"); return; }
   panel.innerHTML = `<span class="x">✕</span><div class="k">DAG · ${esc(o.group)}</div><h2>${esc(o.name)}</h2>
     <table><tr><td>Last run</td><td>${esc(o.status)}${o.startedAt ? ` · ${hhmm(Date.parse(o.startedAt) / 1000)}–${o.finishedAt ? hhmm(Date.parse(o.finishedAt) / 1000) : "…"} MST` : ""}</td></tr>
     <tr><td>Steps</td><td>${o.steps.map((s) => `<span class="chip" style="color:${DAG_COLOR[s.status] || "#94a3b8"}">${esc(s.name)}</span>${s.depends.length ? `<span class="k"> after ${s.depends.map(esc).join(", ")}</span>` : ""}`).join("<br>")}</td></tr>
@@ -885,8 +880,8 @@ function click(fx, fy) {
   if (h.kind === "sat") return go([...stack, { kind: "state", id: h.o.board }, { kind: "machine", flow: h.o.machine }], fx, fy); // the machine the sub-state belongs to; its own state opens the child machine from there
   if (h.kind === "hangar") return push({ kind: "dags" }, fx, fy);
   if (h.kind === "planet") return push({ kind: "machine", flow: h.o.name }, fx, fy);
-  if (h.kind === "dag") return h.o.fold ? openDagPanel(h.o) : h.o.steps.length > 1 || dagBodies(h.o.name).length ? push({ kind: "dag", dag: h.o.name }, fx, fy) : openDagPanel(h.o); // a step graph opens its own level, panel beside it; a one-step DAG only opens its panel
-  if (h.kind === "step") return;
+  if (h.kind === "dag") { const o = h.o, crit = o.tethers[0].crit; // a fold opens the level of its DAGs over the path they write; one DAG opens its panel
+    return o.fold ? push({ kind: "fold", id: o.fold.join("+"), dags: o.fold, crit, path: foldPath(crit) }, fx, fy) : openDagPanel(o); }
   if (h.kind === "task") {
     const d = S.descriptions[h.o.id] || "(no description)";
     panel.innerHTML = `<span class="x">✕</span><div class="k">task · click another dot or empty space to close</div><h2>${esc(h.o.id)} — ${esc(h.o.title)}</h2>
@@ -1103,10 +1098,10 @@ function drawStars() {
     if (grp.head !== false) label(grp.name.toUpperCase(), grp.lx, grp.ly, false, null, 10.5);
     for (const s of grp.stars) {
       const col = DAG_COLOR[s.status] || "#94a3b8", hot = isHot("dag", s), g = s.glyph, r = hot ? 4.4 : 3.4;
-      if (hot) for (const a of s.tethers || []) { // one tether to the middle of the path most of its criteria are on, drawn only while the DAG is hovered
+      if (hot || scene.fold) for (const a of s.tethers || []) { if (a.none) continue; // one tether to the middle of the path most of its criteria are on, drawn only while the DAG is hovered (always on a fold's level)
         const heat = 0, tx = a.g ? a.g.x + ((s.x - a.g.x) / Math.hypot(s.x - a.g.x, s.y - a.g.y)) * a.g.R : a.x, ty = a.g ? a.g.y + ((s.y - a.g.y) / Math.hypot(s.x - a.g.x, s.y - a.g.y)) * a.g.R : a.y;
         const lo = a.cue ? 0.5 : 1; // a cue is a looser tie than a write or a launch: half as bright, sparser dots
-        cx.strokeStyle = rgba("#fbbf24", (hot ? 0.7 : 0.3 + heat * 0.45) * lo); cx.lineWidth = (hot ? 1.3 : 1) / K ** 0.5; cx.setLineDash(a.cue ? [1.5 / K, 8 / K] : [2 / K, 5 / K]); cx.lineDashOffset = -clock * 8 / K;
+        cx.strokeStyle = rgba("#fbbf24", (hot ? 0.85 : 0.45 + heat * 0.45) * lo); cx.lineWidth = (hot ? 1.3 : 1) / K ** 0.5; cx.setLineDash(a.cue ? [1.5 / K, 8 / K] : [2 / K, 5 / K]); cx.lineDashOffset = -clock * 8 / K;
         cx.beginPath(); cx.moveTo(s.x, s.y); cx.lineTo(tx, ty); cx.stroke(); cx.setLineDash([]); if (!a.g) dot(tx, ty, 2.2 / K ** 0.5, rgba("#fbbf24", hot ? 0.8 : 0.3 + heat * 0.5)); }
       if (hot || s.status === "running") { // no resting glow: only a hovered or currently running DAG gets a faint halo
         const glow = cx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.br * 1.3); glow.addColorStop(0, rgba(col, 0.09)); glow.addColorStop(1, rgba(col, 0));
@@ -1126,33 +1121,20 @@ function drawStars() {
     }
   }
 }
-// DAG level: a designed step graph (not a zoomed glyph). Links stream toward the step that waits on them, a running step breathes,
-// a finished DAG flares once, and each name sits under its step in the quiet face
-function drawDagLevel() {
-  if (!scene.dagSteps) return;
-  const o = scene.dagObj, running = o.status === "running";
-  label(o.name.toUpperCase(), scene.title.x, scene.title.y, false, `${o.steps.length} step${o.steps.length === 1 ? "" : "s"} · ${o.status.replace(/_/g, " ")}${o.runnable ? " · runnable" : ""}`, 12);
-  for (const [a, b] of scene.dagLinks) {
-    const ca = DAG_COLOR[a.status] || "#94a3b8", cb = DAG_COLOR[b.status] || "#94a3b8", live = a.status === "running" || b.status === "running" || (running && b.status === "queued");
-    flow({ x: a.x, y: a.y, color: ca }, { x: b.x, y: b.y, color: cb }, live ? 0.75 : 0.32, live ? 1 : 0);
-    const dx = (b.x - a.x) / 2; cx.beginPath(); cx.moveTo(a.x + 18, a.y); cx.bezierCurveTo(a.x + dx, a.y, b.x - dx, b.y, b.x - 20, b.y); cx.stroke(); cx.setLineDash([]);
-  }
-  for (const s of scene.dagSteps) {
-    const col = DAG_COLOR[s.status] || "#94a3b8", hot = isHot("step", s), run = s.status === "running", r = 15 + (run ? 1.5 * Math.sin(clock * 5) : 0);
-    dot(s.x, s.y, r, "rgba(6,10,20,0.9)"); circle(s.x, s.y, r, rgba(col, hot ? 1 : s.status === "not_started" ? 0.45 : 0.85), hot ? 2.2 : 1.5);
-    dot(s.x, s.y, 4.5, rgba(col, s.status === "not_started" ? 0.45 : 0.9));
-    const kc = s.kind && KIND[s.kind]; if (kc) circle(s.x, s.y, r + 5, rgba(kc, 0.5), 1, [2, 3]);
-    for (const R of s.rings || []) circle(s.x, s.y, R, rgba("#c4b5fd", 0.2), 1, [1.5, 4]); // the tasks this step's sessions work orbit it
-    label(s.name, s.x, s.y + Math.max(r, ...(s.rings || []).map((R) => R + 4)) + 20, hot, null, 11.5);
-  }
-  const fin = o.finishedAt ? Date.parse(o.finishedAt) / 1000 : 0;
-  if (fin && fin <= T && T - fin < PULSE) for (const s of scene.dagSteps.filter((q) => !scene.dagSteps.some((o) => (o.depends || []).includes(q.name)))) pulse(s.x, s.y, 15, (T - fin) / PULSE, DAG_COLOR[s.status] || "#94a3b8", 30, [0]);
+// fold level: the path between its two states, streaming toward the state it writes, with each event its DAGs write marked on it
+function drawFold() {
+  const f = scene.fold; if (!f?.a) return;
+  const heat = Math.max(hotEdge.has(`board:${f.a.id}>${f.b.id}`) ? 1 : 0, ...f.dags.map(dagHeat)), lit = hover?.kind === "dag";
+  flow({ ...f.p0, color: f.a.color }, { ...f.p1, color: f.b.color }, (lit ? 0.75 : 0.4) + heat * 0.4, heat + (lit ? 0.5 : 0));
+  cx.beginPath(); cx.moveTo(f.p0.x, f.p0.y); cx.lineTo(f.p1.x, f.p1.y); cx.stroke(); cx.setLineDash([]); arrow(f.p0, f.p1, rgba(f.b.color, 0.6));
+  for (const s of [f.a, f.b]) { disc(s.x, s.y, s.r, s.color, false, s.final); label(s.name, s.x, s.y + s.r + 24 / K, false, null, 13); }
+  for (const e of f.events) { const hot = lit && hover.o.tethers?.some((t) => t.ev === e.name), r = 4 / K ** 0.5;
+    dot(e.x, e.y, r, "rgba(6,10,20,0.95)"); circle(e.x, e.y, r, rgba("#fbbf24", hot ? 1 : 0.6), 1.2 / K ** 0.5); label(e.name, e.x, e.y + 22 / K, hot, null, 11); }
 }
-const KIND = { agent: "#a78bfa", shell: "#67e8f9", python: "#fbbf24", http: "#60a5fa" }; // declared step kind rings (the build reads the real palette)
 function drawScene(k, x, y) {
   const dpr = devicePixelRatio || 1; cx.setTransform(k * dpr, 0, 0, k * dpr, x * dpr, y * dpr);
   K = k; ZS = Math.max(1, k / fitScene().k);
-  drawDagLevel(); drawGalaxies(); drawMoons(); drawSats(); drawHangar(); drawBoardEdges(); drawStateLinks(); drawSun(); drawPlanets(); drawOwned(); drawTasks();
+  drawFold(); drawGalaxies(); drawMoons(); drawSats(); drawHangar(); drawBoardEdges(); drawStateLinks(); drawSun(); drawPlanets(); drawOwned(); drawTasks();
   drawMachineEdges(scene.mEdges); drawStates(scene.mStates, true); drawSessions(); drawStars();
 }
 function frame(now) {
