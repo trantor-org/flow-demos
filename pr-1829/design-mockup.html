@@ -151,6 +151,8 @@ const dagBy = Object.fromEntries(S.dags.map((d) => [d.name, d]));
 const dagGroup = Object.fromEntries(GROUPS.flatMap((g) => g.dags.map((d) => [d, g.name])));
 // a DAG is drawn as its own step graph: steps layered by dependency depth, one link per dependency
 function glyph(d) {
+  // a fold of several DAGs is a fanned stack of up to three steps, one per DAG, in each one's status colour
+  if (d.fold) { const top = d.fold.slice(0, 3); return { nodes: top.map((n, i) => ({ name: n, status: dagBy[n]?.status || "not_started", x: (i - (top.length - 1) / 2) * 9, y: -(i - (top.length - 1) / 2) * 5 })), links: [], w: 18, h: 10, br: 18 }; }
   const steps = d.steps || [], by = Object.fromEntries(steps.map((s) => [s.name, s])), depth = {};
   const dep = (n) => (depth[n] ??= 1 + Math.max(-1, ...by[n].depends.filter((x) => by[x] && x !== n).map(dep)));
   steps.forEach((s) => dep(s.name));
@@ -161,7 +163,11 @@ function glyph(d) {
   const w = (L - 1) * SX, h = (Math.max(1, ...Object.values(cols).map((c) => c.length)) - 1) * SY;
   return { nodes: nodes.length ? nodes : [{ name: d.name, status: d.status, x: 0, y: 0 }], links, w, h, br: Math.hypot(w, h) / 2 + 8 };
 }
-const star = (name, x, y) => { const d = dagBy[name] || { name, status: "not_started", steps: [] }, g = glyph(d); return { ...d, x, y, glyph: g, br: g.br, group: dagGroup[name] || "", runnable: RUNNABLE.has(name) }; };
+const FOLD = {}; // the folded DAG bodies of the current level, by key
+// several DAGs folded into one body: it runs while any of them runs, else shows the status of the one that finished last
+function foldOf(ns) { const ds = ns.map((n) => dagBy[n]), fin = ds.map((d) => d.finishedAt).filter(Boolean).sort().at(-1);
+  return { name: `${ns.length} DAGs`, fold: ns, steps: [], status: ds.some((d) => d.status === "running") ? "running" : ds.find((d) => d.finishedAt === fin)?.status || "not_started", finishedAt: fin }; }
+const star = (name, x, y) => { const d = FOLD[name] || dagBy[name] || { name, status: "not_started", steps: [] }, g = glyph(d); return { ...d, x, y, glyph: g, br: g.br, group: dagGroup[name] || "", runnable: RUNNABLE.has(name) }; };
 // lay DAG glyphs side by side, centred on cx, so wide step graphs never overlap their neighbours
 function row(names, cx, y, gap = 26) {
   const gl = names.map((n) => glyph(dagBy[n] || { name: n, status: "not_started", steps: [] })), total = gl.reduce((a, g) => a + g.w, 0) + gap * (names.length - 1);
@@ -330,7 +336,7 @@ function buildBoard() {
   // The sky takes the canvas's shape and the states fill all of it: the scene is only as wide as the states need (their spread may tighten
   // to 0.83x), and its whole height goes to spreading the states apart (up to 1.25x).
   const A = W / H, w = Math.max(1860, Math.round(950 * A)), F = w / (0.94 * W);
-  scene.w = w; scene.h = Math.round(w / A); const hb = scene.h - 40, sx = (w - 300) / spanX, sy = Math.min(1.25, (hb - 200) / spanY);
+  scene.w = w; scene.h = Math.round(w / A); let hb = scene.h - 40; const sx = (w - 300) / spanX, sy = Math.min(1.25, (hb - 200) / spanY);
   for (const id in BP) BP[id] = [w / 2 + (BP[id][0] - mx) * sx, hb / 2 + (BP[id][1] - my) * sy];
   const byState = {}; board.agents.forEach((a) => (byState[a.state] ||= []).push(a));
   // a task whose session is in a declared sub-state (a CHILD entry: pr_opened while a PR is open) orbits that sub-state's body, not its Board state
@@ -340,12 +346,16 @@ function buildBoard() {
     const g = { id: st.id, name: st.name, x, y, r, n: all.length, color: BOARD_COLOR[st.id], final: st.final, subs: SUBS[st.id] || [] };
     const outer = list.length ? attach(list, g, r + 14, 11, 12, false) : r;
     g.R = outer + 10; g.visR = outer + 7; // a task hopping in orbits on the outer edge
-    // the lifecycle machines a state opens into are still moons on a dashed outer ring; the one that carries a sub-state sits at the top
-    if (g.subs.length) { g.moonR = outer + 19; g.R = g.moonR + 17;
-      const order = [...g.subs].sort((a, b) => SUBSTATES.some((q) => q.machine === b) - SUBSTATES.some((q) => q.machine === a));
-      order.forEach((n, i) => { const fl = S.flows[n], t = -Math.PI / 2 + (i / order.length) * TAU;
-        scene.moons.push({ name: n, parent: g, r: 9, x: g.x + Math.cos(t) * g.moonR, y: g.y + Math.sin(t) * g.moonR, states: fl.machine.states.length,
-          sub: `${fl.machine.states.length} states · ${fl.agents.length} session${fl.agents.length === 1 ? "" : "s"}` }); }); }
+    // the lifecycle machines a state opens into are still moons on a dashed outer ring; the one that carries a sub-state sits at the top. The
+    // rest alternate right and left and stack down each side in even label rows, since each is named beside it; the ring grows until a row
+    // is at least one line of type tall, so a state with many machines becomes a bigger planet instead of overprinting its names
+    if (g.subs.length) {
+      const host = g.subs.filter((n) => SUBSTATES.some((q) => q.machine === n)), rest = g.subs.filter((n) => !host.includes(n)), sides = [rest.filter((_, i) => i % 2 === 0), rest.filter((_, i) => i % 2)];
+      g.moonR = Math.max(outer + 19, (16 * F * (Math.max(...sides.map((l) => l.length)) + 1)) / 2); g.R = g.moonR + 17;
+      const moon = (n, x, y) => { const fl = S.flows[n]; scene.moons.push({ name: n, parent: g, r: 9, x, y, states: fl.machine.states.length,
+        sub: `${fl.machine.states.length} states · ${fl.agents.length} session${fl.agents.length === 1 ? "" : "s"}` }); };
+      host.forEach((n) => moon(n, g.x, g.y - g.moonR));
+      sides.forEach((l, sd) => l.forEach((n, j) => { const y = -g.moonR + ((j + 1) * 2 * g.moonR) / (l.length + 1); moon(n, g.x + (sd ? -1 : 1) * Math.sqrt(g.moonR ** 2 - y * y), g.y + y); })); }
     scene.galaxies[st.id] = g;
   }
   // each sub-state is a small body held still just above its Board state, joined to it by a short stem; its tasks orbit it
@@ -354,6 +364,15 @@ function buildBoard() {
     const outer = list.length ? attach(list, sat, sat.r + 12, 11, 10, false) : sat.r; sat.R = outer + 8; sat.visR = outer + 6;
     sat.x = g.x; sat.y = g.y - g.R - 46 - sat.R; g.sat = sat; scene.sats.push(sat);
     sat.hostMoon = scene.moons.find((m) => m.parent === g && m.name === q.machine); } // a state of a lifecycle moon hangs off that moon
+  // no state reaches its neighbour: where a state's tasks, moons or moon names come within 40 of the next state beside it, that state and every
+  // one right of it move over until they clear, and the sky grows to keep the canvas's shape
+  const reach = (g, sg) => Math.max(g.R, ...scene.moons.filter((m) => m.parent === g && (m.x - g.x) * sg > 1).map((m) => (m.x - g.x) * sg + m.r + 10 + textW(m.name, 10.5) * F));
+  const gs = Object.values(scene.galaxies).sort((a, b) => a.x - b.x), dx = new Map(gs.map((g) => [g, 0]));
+  for (const b of gs) { const need = Math.max(0, ...gs.filter((a) => a.x < b.x - 1 && Math.abs(a.y - b.y) < a.R + b.R + 40).map((a) => a.x + dx.get(a) + reach(a, 1) + 40 - (b.x + dx.get(b) - reach(b, -1))));
+    if (need > 0) for (const g of gs) if (g.x >= b.x - 1) dx.set(g, dx.get(g) + need); }
+  const grow = Math.max(...dx.values());
+  if (grow > 0) { const dh = Math.round((w + grow) / A) - scene.h; scene.w = w + grow; scene.h += dh; hb += dh;
+    for (const g of gs) { g.x += dx.get(g); g.y += dh / 2; } for (const m of scene.moons) { m.x += dx.get(m.parent); m.y += dh / 2; } for (const t of scene.sats) { t.x += dx.get(t.parent); t.y += dh / 2; } }
   // one path per ordered pair of states, whatever number of events it carries; its hover lists them. A pair joined both ways bows to opposite
   // sides; a one-way path runs straight. A final state reached from several states (Archived) gathers its paths into one stream along its side of
   // the Board instead of across the middle. Then any path that would cross a state other than its own two bends away from that state until it
@@ -399,21 +418,29 @@ function buildBoard() {
     const e = es.sort((x, y) => { const [a1, a2] = score(x), [b1, b2] = score(y); return b1 - a1 || b2 - a2; })[0];
     if (e) { const m = { x: 0.25 * e.p0.x + 0.5 * e.c.x + 0.25 * e.p1.x, y: 0.25 * e.p0.y + 0.5 * e.c.y + 0.25 * e.p1.y }; anchors[n] = [{ x: m.x, y: m.y, edge: e, cue, crit: text }]; }
     else anchors[n] = [{ x: g.x, y: g.y, g, cue, crit: text }]; }
+  // DAGs that sit on the same path (or by the same state) fold into one body; its hover lists each of them with its criteria
+  for (const k in FOLD) delete FOLD[k];
+  const byKey = new Map(); for (const n of Object.keys(anchors).sort()) { const a = anchors[n][0], k = a.edge ? `${a.edge.source}>${a.edge.target}` : a.g.id; byKey.set(k, [...(byKey.get(k) || []), n]); }
+  for (const [k, ns] of byKey) if (ns.length > 1) { const key = `fold:${k}`; FOLD[key] = foldOf(ns);
+    anchors[key] = [{ ...anchors[ns[0]][0], cue: ns.every((n) => anchors[n][0].cue), crit: ns.flatMap((n) => anchors[n][0].crit.map((t) => `${n}: ${t}`)) }];
+    for (const n of ns) delete anchors[n]; }
+  const dagOf = (n) => FOLD[n] || dagBy[n];
   // the DAGs tied to one state hold still on an arc around it, centred on the side facing away from the middle of the Board
   const byG = new Map(); for (const n of Object.keys(anchors).sort()) { const g = anchors[n][0].g; if (g) byG.set(g, [...(byG.get(g) || []), n]); }
   const homes = {}, onEdge = {}, edgeRank = (n) => onEdge[n];
   for (const n of Object.keys(anchors).sort()) { const e = anchors[n][0].edge; if (e) { e.dagsOn = (e.dagsOn || 0) + 1; onEdge[n] = e.dagsOn - 1; } }
   // a DAG on a path sits off the middle of it, on the side the path bows to (above a straight one); one with no path sits by its state
-  for (const n of Object.keys(anchors)) { const a = anchors[n][0], e = a.edge; if (!e) continue; const gl = glyph(dagBy[n]), dx = e.p1.x - e.p0.x, dy = e.p1.y - e.p0.y, L = Math.hypot(dx, dy) || 1;
+  for (const n of Object.keys(anchors)) { const a = anchors[n][0], e = a.edge; if (!e) continue; const gl = glyph(dagOf(n)), dx = e.p1.x - e.p0.x, dy = e.p1.y - e.p0.y, L = Math.hypot(dx, dy) || 1;
     let nx = -dy / L, ny = dx / L; const bow = (e.c.x - (e.p0.x + e.p1.x) / 2) * nx + (e.c.y - (e.p0.y + e.p1.y) / 2) * ny; if (bow < -1 || (Math.abs(bow) <= 1 && ny > 0)) { nx = -nx; ny = -ny; }
     const r = 70 + Math.max(gl.w, gl.h) / 2 + 60 * edgeRank(n); homes[n] = { x: a.x + nx * r, y: a.y + ny * r }; }
   for (const [g, ns] of byG) { const ex = g.x - scene.w / 2, ey = g.y - hb / 2, l = Math.hypot(ex, ey), base = l > 40 ? Math.atan2(ey, ex) : Math.PI / 2, span = Math.min(Math.PI * 0.8, (ns.length - 1) * 0.6);
-    ns.forEach((n, i) => { const a = base + (ns.length > 1 ? -span / 2 + (span * i) / (ns.length - 1) : 0), gl = glyph(dagBy[n]), r = g.R + 60 + Math.max(gl.w, gl.h) / 2;
+    ns.forEach((n, i) => { const a = base + (ns.length > 1 ? -span / 2 + (span * i) / (ns.length - 1) : 0), gl = glyph(dagOf(n)), r = g.R + 60 + Math.max(gl.w, gl.h) / 2;
       homes[n] = { x: g.x + Math.cos(a) * r, y: g.y + Math.sin(a) * r }; }); }
   const path = scene.bEdges.flatMap((e) => (e.loop ? [] : sample(e, 40))), gal = [...Object.values(scene.galaxies), ...scene.sats];
-  const hwOf = (n) => Math.max(glyph(dagBy[n] || { name: n, status: "not_started", steps: [] }).w / 2 + 12, (textW(n, 11) * F) / 2 + 6);
-  const bodies = Object.keys(anchors).map((n) => { const g = glyph(dagBy[n]), home = homes[n];
+  const hwOf = (n) => Math.max(glyph(dagOf(n) || { name: n, status: "not_started", steps: [] }).w / 2 + 12, (textW(dagOf(n)?.name || n, 11) * F) / 2 + 6);
+  const bodies = Object.keys(anchors).map((n) => { const g = glyph(dagOf(n)), home = homes[n];
     return { n, x: home.x, y: home.y, home, hw: hwOf(n), up: Math.max(g.h / 2 + 10, g.br + 6), dn: Math.max(g.h / 2, g.br) + 16 * F + 12, k: 0.03 }; });
+  const names = scene.moons.map((m) => { const left = m.x < m.parent.x - 1, w = m.r + 10 + textW(m.name, 10.5) * F; return { x0: left ? m.x - w : m.x - m.r, x1: left ? m.x + m.r : m.x + w, y0: m.y - 10 * F, y1: m.y + 10 * F }; });
   for (let it = 0; it < 400; it++) for (const q of bodies) {
     q.x += (q.home.x - q.x) * q.k; q.y += (q.home.y - q.y) * q.k;
     for (const o of bodies) if (o !== q) { const ox = q.hw + o.hw + 14 - Math.abs(q.x - o.x), oy = (q.y < o.y ? q.dn + o.up : o.dn + q.up) + 10 - Math.abs(q.y - o.y);
@@ -421,6 +448,8 @@ function buildBoard() {
     for (const g of gal) { const nx = Math.max(q.x - q.hw, Math.min(g.x, q.x + q.hw)), ny = Math.max(q.y - q.up, Math.min(g.y, q.y + q.dn)), d = Math.hypot(nx - g.x, ny - g.y), R = g.R + 34 + (g.lab.y < g.y ? 0 : 20);
       if (d < R) { const dx = q.x - g.x, dy = q.y - g.y, L = Math.hypot(dx, dy) || 1; q.x += (dx / L) * Math.min(10, R - d); q.y += (dy / L) * Math.min(10, R - d); }
       const lw = (textW(g.name, 13) * F) / 2, ly = g.lab.y; if (Math.abs(q.x - g.x) < q.hw + lw && ly > q.y - q.up - 30 && ly < q.y + q.dn + 30) q.y += (q.y < ly ? -1 : 1) * 6; }
+    for (const b of names) { const ox = Math.min(q.x + q.hw, b.x1) - Math.max(q.x - q.hw, b.x0) + 8, oy = Math.min(q.y + q.dn, b.y1) - Math.max(q.y - q.up, b.y0) + 8;
+      if (ox > 0 && oy > 0) { if (ox < oy) q.x += (q.x < (b.x0 + b.x1) / 2 ? -1 : 1) * Math.min(ox, 10); else q.y += (q.y < (b.y0 + b.y1) / 2 ? -1 : 1) * Math.min(oy, 10); } }
     for (const pt of path) if (pt.x > q.x - q.hw - 6 && pt.x < q.x + q.hw + 6 && pt.y > q.y - q.up - 6 && pt.y < q.y + q.dn + 6) q.y += (q.y < pt.y ? -1 : 1) * 1.5;
     q.x = Math.max(q.hw + 20, Math.min(scene.w - q.hw - 20, q.x)); q.y = Math.max(q.up + 20, Math.min(hb - q.dn, q.y)); // tethered DAGs stay on the sky
   }
@@ -429,7 +458,7 @@ function buildBoard() {
   scene.groups.push({ name: "", head: false, stars: dagBodies.map((q) => scene.stars[q.n]) });
   // every free DAG folds into one still body at the right end of the lifecycle axis, opposite New; a dot per DAG rims it in its status colour,
   // and it glows while any of them runs
-  const names = freeDags(); scene.hangar = { x: BP.completed[0], y: BP.done[1], r: 22, names, doms: GROUPS.filter((g) => g.dags.some((n) => names.includes(n))).length };
+  const free = freeDags(); scene.hangar = { x: Math.max(...Object.values(scene.galaxies).map((g) => g.x)), y: scene.galaxies[AXIS[0]].y, r: 22, names: free, doms: GROUPS.filter((g) => g.dags.some((n) => free.includes(n))).length };
 }
 
 // DAGs level: every free DAG in one row of domain blocks, centred on the canvas; a DAG drills into its steps as on any level
@@ -498,14 +527,26 @@ function buildState(sid) {
     const crit = {};
     for (const t of merged(board.machine.transitions.filter((t) => t.source !== t.target && (t.source === sid || t.target === sid))))
       for (const w of t.writers) if (dagBy[w.actor]) (crit[w.actor] ||= []).push(`writes ${w.event} (${stateName(t.source)} → ${stateName(t.target)})`);
-    const want = {};
+    const want = {}, launched = {};
     for (const l of S.launches) if (l.flow && subs.includes(l.flow) && dagBy[l.dag]) { (crit[l.dag] ||= []).push(`launches ${l.flow}`);
-      const p = scene.planets.find((q) => q.name === l.flow); if (p !== hub) want[l.dag] = Math.atan2(p.y - cy0, p.x - cx0); }
+      const p = scene.planets.find((q) => q.name === l.flow); (launched[l.dag] ||= new Set()).add(p); if (p !== hub) want[l.dag] = Math.atan2(p.y - cy0, p.x - cx0); }
     for (const c of CUES) if (c.state === sid) (crit[c.dag] ||= []).push(`runs on ${c.on}, beside ${c.event}`);
-    // a DAG that finds no room on the inner ring takes the outer one, between the skill machines
-    const rings = [hub.rim + 150, hub.rim + 245], ring = Object.keys(crit).sort().map((n) => {
-      let a = null, rD = rings[0];
-      for (const r of rings) { const w = (Math.max(glyph(dagBy[n]).w / 2, textW(n, 11) / 2) + 18) / r; a = nearestFree(want[n] ?? -Math.PI / 2, w, r); if (a !== null) { rD = r; taken.push([a, w, r]); break; } }
+    // a DAG whose only tie here is launching one skill machine orbits that machine, a small body named on hover, on its flanks (its path to the
+    // primary leaves one side and its name the other); every other DAG keeps its place on the ring around the primary
+    const owned = new Map();
+    for (const n of Object.keys(crit).sort()) { const ps = [...(launched[n] || [])]; if (ps.length !== 1 || ps[0] === hub || crit[n].some((t) => !t.startsWith("launches "))) continue;
+      owned.set(ps[0], [...(owned.get(ps[0]) || []), n]); }
+    for (const [p, ns] of owned) { const th = Math.atan2(hub.y - p.y, hub.x - p.x); p.dagR = p.rim + 14;
+      ns.forEach((n, i) => { const a = th + (i % 2 ? -1 : 1) * (Math.PI / 2 + Math.floor(i / 2) * 0.32), st = (scene.stars[n] = star(n, p.x + Math.cos(a) * p.dagR, p.y + Math.sin(a) * p.dagR));
+        Object.assign(st, { owned: p, br: 5, tethers: [{ x: p.x, y: p.y, g: { x: p.x, y: p.y, R: p.rim }, crit: crit[n] }] }); delete crit[n]; }); }
+    // DAGs with the same ties here (the same Board path, the same machine) fold into one body, as on the Board
+    const byTies = new Map(); for (const n of Object.keys(crit).sort()) { const k = crit[n].join("|"); byTies.set(k, [...(byTies.get(k) || []), n]); }
+    for (const [k, ns] of byTies) if (ns.length > 1) { const key = `fold:${sid}:${k}`; FOLD[key] = foldOf(ns); crit[key] = ns.flatMap((n) => crit[n].map((t) => `${n}: ${t}`));
+      if (ns[0] in want) want[key] = want[ns[0]]; for (const n of ns) delete crit[n]; }
+    // a DAG that finds no room on a ring takes the next one out
+    const rings = Array.from({ length: 8 }, (_, i) => hub.rim + 150 + 95 * i), ring = Object.keys(crit).sort().map((n) => {
+      let a = null, rD = rings[0]; const d = FOLD[n] || dagBy[n];
+      for (const r of rings) { const w = (Math.max(glyph(d).w / 2, textW(d.name, 11) / 2) + 18) / r; a = nearestFree(want[n] ?? -Math.PI / 2, w, r); if (a !== null) { rD = r; taken.push([a, w, r]); break; } }
       a ??= want[n] ?? -Math.PI / 2;
       const st = (scene.stars[n] = star(n, cx0 + Math.cos(a) * rD, cy0 + Math.sin(a) * rD)); st.tethers = [{ x: hub.x, y: hub.y, g: { x: hub.x, y: hub.y, R: hub.rim }, crit: crit[n] }]; return st; });
     if (ring.length) scene.groups.push({ name: "", head: false, stars: ring });
@@ -743,6 +784,7 @@ const writerLine = (w) => `${esc(w.actor)} <span class="k">${w.event ? `writes $
 function tipHtml({ kind, o }) {
   if (kind === "task") return `<div class="k">task · ${esc(stateName(o.state))}${o.host.states || o.host.depends ? ` · orbiting ${esc(o.host.title || o.host.name)}` : ""} · click for details</div><div class="n">${esc(o.id)}</div>${esc(o.title)}<div class="k">${esc(o.model)} · ${o.labels.map(esc).join(", ")}</div>`;
   if (kind === "session") return `<div class="k">${esc(o.kind)} session · ${esc(o.flow)}</div><div class="n">${esc(o.task || o.title)}</div><div class="k">${esc(o._state || o.state)} · ${o.steps} steps · ${esc(o.model)} · last active ${hhmm(o.active)} MST</div>`;
+  if (kind === "dag" && o.fold) return `<div class="k">${o.fold.length} DAGs on one path · click to list them</div><div class="n">${o.fold.map(esc).join("<br>")}</div><div class="k">${o.tethers[0].crit.map(esc).join("<br>")}</div>`;
   if (kind === "dag") return `<div class="k">DAG · ${esc(o.group)} · ${esc(o.status)}${o.runnable ? " · runnable" : ""}</div><div class="n">${esc(o.name)}</div>${o.tethers?.[0]?.crit ? `<div class="k">${o.tethers[0].crit.map(esc).join("<br>")}</div>` : ""}${o.steps.length} step${o.steps.length === 1 ? "" : "s"}: ${o.steps.map((s) => esc(s.name)).join(" → ")}${o.finishedAt ? `<div class="k">last run ${hhmm(Date.parse(o.finishedAt) / 1000)} MST</div>` : ""}`;
   if (kind === "step") return `<div class="k">${esc(scene.dagObj.name)} step${o.kind ? ` · ${esc(o.kind)}` : ""} · ${esc(o.status.replace(/_/g, " "))}</div><div class="n">${esc(o.name)}</div>${o.depends.length ? `<span class="k">after</span> ${o.depends.map(esc).join(", ")}` : '<span class="k">first step</span>'}`;
   if (kind === "galaxy") return `<div class="k">Board state · click to open</div><div class="n">${esc(o.name)}</div>${o.n} tasks${o.subs.length ? ` · ${o.subs.length} lifecycle machines inside` : ""}`;
@@ -762,6 +804,9 @@ function tipHtml({ kind, o }) {
 // ---- click: drill into states, machines and DAGs, open panels for tasks and sessions ----
 const panel = document.getElementById("panel");
 function openDagPanel(o) {
+  if (o.fold) { panel.innerHTML = `<span class="x">✕</span><div class="k">${o.fold.length} DAGs on one Board path</div><h2>${esc(o.name)}</h2>
+    <table>${o.fold.map((n) => { const d = dagBy[n]; return `<tr><td>${esc(n)}</td><td><span style="color:${DAG_COLOR[d.status] || "#94a3b8"}">${esc(d.status)}</span>${d.finishedAt ? ` · ${hhmm(Date.parse(d.finishedAt) / 1000)} MST` : ""}<br><span class="k">${o.tethers[0].crit.filter((t) => t.startsWith(`${n}: `)).map((t) => esc(t.slice(n.length + 2))).join("<br>")}</span></td></tr>`; }).join("")}</table>`;
+    panel.classList.add("open"); panel.querySelector(".x").onclick = () => panel.classList.remove("open"); return; }
   panel.innerHTML = `<span class="x">✕</span><div class="k">DAG · ${esc(o.group)}</div><h2>${esc(o.name)}</h2>
     <table><tr><td>Last run</td><td>${esc(o.status)}${o.startedAt ? ` · ${hhmm(Date.parse(o.startedAt) / 1000)}–${o.finishedAt ? hhmm(Date.parse(o.finishedAt) / 1000) : "…"} MST` : ""}</td></tr>
     <tr><td>Steps</td><td>${o.steps.map((s) => `<span class="chip" style="color:${DAG_COLOR[s.status] || "#94a3b8"}">${esc(s.name)}</span>${s.depends.length ? `<span class="k"> after ${s.depends.map(esc).join(", ")}</span>` : ""}`).join("<br>")}</td></tr>
@@ -779,7 +824,7 @@ function click(fx, fy) {
   if (h.kind === "sat") return go([...stack, { kind: "state", id: h.o.board }, { kind: "machine", flow: h.o.machine }], fx, fy); // the machine the sub-state belongs to; its own state opens the child machine from there
   if (h.kind === "hangar") return push({ kind: "dags" }, fx, fy);
   if (h.kind === "planet") return push({ kind: "machine", flow: h.o.name }, fx, fy);
-  if (h.kind === "dag") return h.o.steps.length > 1 || dagBodies(h.o.name).length ? push({ kind: "dag", dag: h.o.name }, fx, fy) : openDagPanel(h.o); // a step graph opens its own level, panel beside it; a one-step DAG only opens its panel
+  if (h.kind === "dag") return h.o.fold ? openDagPanel(h.o) : h.o.steps.length > 1 || dagBodies(h.o.name).length ? push({ kind: "dag", dag: h.o.name }, fx, fy) : openDagPanel(h.o); // a step graph opens its own level, panel beside it; a one-step DAG only opens its panel
   if (h.kind === "step") return;
   if (h.kind === "task") {
     const d = S.descriptions[h.o.id] || "(no description)";
@@ -820,7 +865,7 @@ function circle(x, y, r, stroke, w = 1, dash) { cx.strokeStyle = stroke; cx.line
 function dot(x, y, r, fill) { cx.fillStyle = fill; cx.beginPath(); cx.arc(x, y, r, 0, TAU); cx.fill(); }
 function isHot(kind, o) { return hover && hover.kind === kind && hover.o === o; }
 const hotDag = () => (hover?.kind === "dag" ? hover.o.name : null);
-const edgeLitBy = (e) => { const d = hotDag(); return d && e.writers.some((w) => w.actor === d); };
+const edgeLitBy = (e) => { const d = hover?.kind === "dag" ? hover.o.fold || [hover.o.name] : null; return d && e.writers.some((w) => d.includes(w.actor)); };
 function disc(x, y, r, col, hot, final, alpha = 0.16) {
   const grd = cx.createRadialGradient(x, y, 0, x, y, r); grd.addColorStop(0, rgba(col, alpha)); grd.addColorStop(1, rgba(col, 0.02));
   cx.fillStyle = grd; cx.beginPath(); cx.arc(x, y, r, 0, TAU); cx.fill();
@@ -976,6 +1021,14 @@ function drawPlanets() {
     label(p.title || p.name, p.x + ux * (off + Math.abs(ux) * hw * 1.05), p.y + uy * off + (uy < 0 ? -16 : 0), hot, sub, size);
   }
 }
+// DAGs that orbit the skill machine they launch: a small ringed body in its status colour on the machine's dashed DAG ring; hover names it
+function drawOwned() {
+  for (const p of scene.planets) if (p.dagR) circle(p.x, p.y, p.dagR, rgba("#5eead4", 0.14), 1, [1.5, 5]);
+  for (const s of Object.values(scene.stars)) { if (!s.owned) continue; const hot = isHot("dag", s), col = DAG_COLOR[s.status] || "#94a3b8", fin = s.finishedAt ? Date.parse(s.finishedAt) / 1000 : 0;
+    dot(s.x, s.y, 4.2, "rgba(6,10,20,0.9)"); circle(s.x, s.y, 4.2, rgba(col, hot ? 1 : 0.8), hot ? 1.5 : 1); dot(s.x, s.y, 1.6, rgba(col, 0.9));
+    if (s.status === "running" || (fin && fin <= T && T - fin < PULSE)) pulse(s.x, s.y, 5, s.status === "running" ? (clock % 2) / 2 : (T - fin) / PULSE, ACT, 18, [0]);
+    if (hot) label(s.name, s.x, s.y - 16 / K, true, null, 11); }
+}
 function drawStars() {
   for (const grp of scene.groups) {
     if (grp.head !== false) label(grp.name.toUpperCase(), grp.lx, grp.ly, false, null, 10.5);
@@ -1030,7 +1083,7 @@ const KIND = { agent: "#a78bfa", shell: "#67e8f9", python: "#fbbf24", http: "#60
 function drawScene(k, x, y) {
   const dpr = devicePixelRatio || 1; cx.setTransform(k * dpr, 0, 0, k * dpr, x * dpr, y * dpr);
   K = k; ZS = Math.max(1, k / fitScene().k);
-  drawDagLevel(); drawGalaxies(); drawMoons(); drawSats(); drawHangar(); drawBoardEdges(); drawStateLinks(); drawSun(); drawPlanets(); drawTasks();
+  drawDagLevel(); drawGalaxies(); drawMoons(); drawSats(); drawHangar(); drawBoardEdges(); drawStateLinks(); drawSun(); drawPlanets(); drawOwned(); drawTasks();
   drawMachineEdges(scene.mEdges); drawStates(scene.mStates, true); drawSessions(); drawStars();
 }
 function frame(now) {
