@@ -179,6 +179,19 @@ body.kanban canvas, body.kanban #tip, body.kanban #panel { visibility: hidden; }
 #nav .kb-glyph { border: 0; border-radius: 0; fill: currentColor; }
 #nav .note { font-size: calc(10.5px * var(--fs)); line-height: 1.6; color: var(--faint); }
 
+#nav > section.outline { flex: 1; min-height: 0; box-sizing: border-box; width: calc(var(--nav) - 24px); padding: 0 6px; margin: 0 -6px; }
+#nav .outline h3 { display: flex; align-items: baseline; white-space: nowrap; }
+#nav .outline .clear { all: unset; cursor: pointer; margin-left: auto; letter-spacing: .04em; text-transform: none; }
+#nav .outline .clear:hover, #nav .outline .clear:focus-visible { color: var(--ink); }
+#nav .outline .ms { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: baseline; padding: 3px 6px; margin: 0 -6px; width: calc(100% + 12px);
+  border-radius: 4px; font-size: calc(12px * var(--fs)); line-height: 1.4; }
+#nav .outline .ms:hover, #nav .outline .ms:focus-visible { background: color-mix(in srgb, var(--slate) 8%, transparent); }
+#nav .outline .ms.on { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+#nav .outline .id { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: calc(11.5px * var(--fs)); color: var(--ink); white-space: nowrap; }
+#nav .outline .w { font-size: calc(11px * var(--fs)); color: var(--muted); font-variant-numeric: tabular-nums; }
+#nav .outline .bar { grid-column: 1 / -1; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--slate) 12%, transparent); overflow: hidden; margin-top: 3px; }
+#nav .outline .bar > i { display: block; height: 100%; background: color-mix(in srgb, var(--agent) 70%, transparent); }
+
 #kb { position: fixed; z-index: 3; top: 0; bottom: 0; left: calc(var(--nav) + 20px); right: calc(var(--rail) + 20px); display: flex; flex-direction: column;
   font-size: calc(12px * var(--fs)); transition: left .3s cubic-bezier(.4,0,.2,1); }
 #nav.folded ~ #kb { left: calc(var(--nav-fold) + 20px); }
@@ -287,6 +300,10 @@ body.kanban canvas, body.kanban #tip, body.kanban #panel { visibility: hidden; }
 #kb .card .uw { margin: -2px 0 4px; font-size: calc(10px * var(--fs)); color: var(--hold-text); }
 #kb .sk { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 9px; line-height: 15px; font-weight: 600; color: var(--hold-hi); background: color-mix(in srgb, var(--hold) 16%, transparent); border: 1px solid color-mix(in srgb, var(--hold) 45%, transparent); }
 #kb .sk svg { width: 1em; height: 1em; }
+
+#kb .col[data-lane="done"] .stack > .spine { background: linear-gradient(color-mix(in srgb, var(--ok) 65%, transparent), color-mix(in srgb, var(--ok) 15%, transparent)); }
+#kb .sk.dn { color: var(--ok-text); background: color-mix(in srgb, var(--ok) 12%, transparent); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+#kb .card .uw.dn { color: var(--ok-text); }
 @media (prefers-reduced-motion: reduce) { #kb .stack, #kb .stack > .edge, #kb .stack > .spine, #kb .stack .rest, #kb .stack .restin > .card { transition: none; } }
 #kb .card.chain-self { box-shadow: 0 0 0 1px var(--ink-hi), 0 0 14px color-mix(in srgb, var(--ink-hi) 18%, transparent); }
 #kb .card.chain-holds { box-shadow: 0 0 0 1px var(--hold), 0 0 12px color-mix(in srgb, var(--hold) 28%, transparent); }
@@ -711,7 +728,7 @@ body.graph #c, body.graph #tip, body.graph #panel, body.graph .hud { visibility:
 #og .og-none.centre { position: absolute; inset: 0; margin: auto; height: fit-content; text-align: center; }
 
 
-#nav .matches, #panel, :is(#kb, #nav) .menu, #kb .col .body, #kbm .modal, #kbm .tvbody, #kbm .tvcol, #kbm .tv textarea.fv.long, #admin, #feed, #og .og-panel {
+#nav .matches, #nav .outline, #panel, :is(#kb, #nav) .menu, #kb .col .body, #kbm .modal, #kbm .tvbody, #kbm .tvcol, #kbm .tv textarea.fv.long, #admin, #feed, #og .og-panel {
   overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--slate) 25%, transparent) transparent; }
 </style>
 <style>
