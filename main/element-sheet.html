@@ -46,7 +46,7 @@ aside h3 { margin: 0 0 8px; font-size: calc(10px * var(--fs)); font-weight: 500;
 
 #nav { left: 0; width: var(--nav); border-right: 1px solid color-mix(in srgb, var(--slate) 10%, transparent); transition: width .3s cubic-bezier(.4,0,.2,1); }
 #nav.folded { width: var(--nav-fold); }
-#nav .layers { flex: 1; min-height: 0; }
+#nav .matches { flex: 1; min-height: 0; }
 
 #nav > section { width: calc(var(--nav) - 36px); transition: opacity .2s; }
 #nav .views h3, #nav .views .t, #nav .views .n { transition: opacity .2s; }
@@ -104,8 +104,6 @@ aside h3 { margin: 0 0 8px; font-size: calc(10px * var(--fs)); font-weight: 500;
 .node.hit[data-kind="dag"] .g { border-radius: 2px; }
 .node.hit[data-kind="task"] .g { background: currentColor; }
 .node.hit .t small { display: block; overflow: hidden; text-overflow: ellipsis; font-size: calc(10.5px * var(--fs)); color: var(--muted); }
-.node .chev { color: var(--faint); font-size: calc(10px * var(--fs)); padding: 2px 4px; cursor: pointer; }
-.node .chev:hover { color: var(--ink); }
 .kids { margin-left: 10px; padding-left: 8px; border-left: 1px dashed color-mix(in srgb, var(--slate) 18%, transparent); }
 .lvl { font-size: calc(9px * var(--fs)); letter-spacing: .22em; text-transform: uppercase; color: var(--ghost); margin: 6px 0 2px 30px; }
 .more { all: unset; cursor: pointer; display: block; padding: 3px 0 3px 30px; font-size: calc(11px * var(--fs)); color: var(--dim); }
@@ -131,6 +129,13 @@ aside h3 { margin: 0 0 8px; font-size: calc(10px * var(--fs)); font-weight: 500;
 #legend span span { margin-right: 0; }
 
 .hud { position: fixed; z-index: 2; left: calc(var(--nav) + 24px); pointer-events: none; font-size: calc(12px * var(--fs)); color: var(--muted); }
+
+#crumb { position: fixed; z-index: 4; top: 18px; left: calc(var(--nav) + 24px); display: flex; align-items: baseline; gap: 4px; font-size: calc(12px * var(--fs)); color: var(--muted); white-space: nowrap; transition: left .3s cubic-bezier(.4,0,.2,1); }
+#nav.folded ~ #crumb { left: calc(var(--nav-fold) + 24px); }
+#crumb button { all: unset; cursor: pointer; color: var(--muted); }
+#crumb button:hover, #crumb button:focus-visible { color: var(--ink); }
+#crumb .here { color: var(--ink); }
+#crumb .sep { opacity: .5; }
 #tip { position: fixed; z-index: 4; pointer-events: none; padding: 8px 11px; border-radius: 8px; font-size: calc(12px * var(--fs)); line-height: 1.5;
   background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid color-mix(in srgb, var(--slate) 18%, transparent); backdrop-filter: blur(6px); max-width: 380px; opacity: 0; transition: opacity .12s; }
 #tip .k { color: var(--muted); font-size: calc(11px * var(--fs)); } #tip .n { font-weight: 500; }
@@ -299,6 +304,12 @@ body.kanban canvas, body.kanban #tip, body.kanban #panel { visibility: hidden; }
 #kb .col[data-lane="done"] .stack > .spine { background: linear-gradient(color-mix(in srgb, var(--ok) 65%, transparent), color-mix(in srgb, var(--ok) 15%, transparent)); }
 #kb .sk.dn { color: var(--ok-text); background: color-mix(in srgb, var(--ok) 12%, transparent); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 #kb .card .uw.dn { color: var(--ok-text); }
+
+#kb .xm { all: unset; cursor: pointer; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 3px; max-width: 100%; box-sizing: border-box; padding: 0 5px; border-radius: 3px; line-height: 1.5; white-space: normal;
+  color: var(--agent-text); background: color-mix(in srgb, var(--agent) 12%, transparent); border: 1px dashed color-mix(in srgb, var(--agent) 50%, transparent); }
+#kb .xm:hover, #kb .xm:focus-visible { color: var(--agent-hi); border-style: solid; }
+
+#kb .xm .nw { white-space: normal; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { #kb .stack, #kb .stack > .edge, #kb .stack > .spine, #kb .stack .rest, #kb .stack .restin > .card { transition: none; } }
 #kb .card.chain-self { box-shadow: 0 0 0 1px var(--ink-hi), 0 0 14px color-mix(in srgb, var(--ink-hi) 18%, transparent); }
 #kb .card.chain-holds { box-shadow: 0 0 0 1px var(--hold), 0 0 12px color-mix(in srgb, var(--hold) 28%, transparent); }
@@ -723,7 +734,7 @@ body.graph #c, body.graph #tip, body.graph #panel, body.graph .hud { visibility:
 #og .og-none.centre { position: absolute; inset: 0; margin: auto; height: fit-content; text-align: center; }
 
 
-#nav .layers, #nav .outline, #panel, :is(#kb, #nav) .menu, #kb .col .body, #kbm .modal, #kbm .tvbody, #kbm .tvcol, #kbm .tv textarea.fv.long, #admin, #feed, #og .og-panel {
+#nav .matches, #nav .outline, #panel, :is(#kb, #nav) .menu, #kb .col .body, #kbm .modal, #kbm .tvbody, #kbm .tvcol, #kbm .tv textarea.fv.long, #admin, #feed, #og .og-panel {
   overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--slate) 25%, transparent) transparent; }
 </style>
 <style>
