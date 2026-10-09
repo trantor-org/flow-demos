@@ -12,6 +12,11 @@
 -->
 <title>StarPulse — element sheet</title>
 <style>
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 300; font-display: block; src: url("@fontsource/inter/files/inter-latin-300-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: block; src: url("@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: block; src: url("@fontsource/inter/files/inter-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: block; src: url("@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+
 :root {
   
   --ink: #dbe4f3; --ink-hi: #e2e8f0; --ink-2: #cbd5e1; --ink-3: #b8c4d8; --slate: #94a3b8; --muted: #6b7a93; --dim: #64748b; --faint: #475569; --ghost: #3f4c66; --track: #334155;
@@ -222,7 +227,9 @@ body.kanban canvas, body.kanban #tip, body.kanban #panel { visibility: hidden; }
 #kb .col h2 { white-space: nowrap; }
 #kb .col h2 .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #kb .col h2 .c, #kb .col h2 .hint { flex: none; }
-#kb .col .body { flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; gap: 7px; }
+#kb .col .body { flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; gap: 7px; scrollbar-gutter: stable; }
+
+#kb .col .body.scrolling .card { pointer-events: none; }
 #kb .col .empty { margin: 18px auto; font-size: calc(11px * var(--fs)); color: var(--ghost); }
 
 
@@ -255,10 +262,12 @@ body.kanban canvas, body.kanban #tip, body.kanban #panel { visibility: hidden; }
 #kb .mach b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 400; color: var(--agent-text); }
 #kb .mach .s { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #kb .mach .p { flex: none; position: relative; top: -1px; width: 6px; height: 6px; border-radius: 50%; background: var(--agent); box-shadow: 0 0 6px var(--agent); }
-#kb .mach.hot .p { background: var(--run); box-shadow: 0 0 0 3px color-mix(in srgb, var(--run) 25%, transparent), 0 0 10px var(--run); animation: kb-pulse 1.4s ease-in-out infinite; }
+#kb .mach.hot .p { background: var(--run); box-shadow: 0 0 0 3px color-mix(in srgb, var(--run) 25%, transparent), 0 0 10px var(--run); }
+
+#kb .mach.hot .p::after { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--run) 25%, transparent), 0 0 8px var(--run); will-change: transform, opacity; animation: kb-pulse 1.4s ease-in-out infinite; }
 #kb .mach .ago { flex: none; margin-left: auto; color: var(--faint); }
-@keyframes kb-pulse { 0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--run) 25%, transparent), 0 0 8px var(--run); } 50% { box-shadow: 0 0 0 6px transparent, 0 0 16px var(--run); } }
-@media (prefers-reduced-motion: reduce) { #kb .mach.hot .p { animation: none; } }
+@keyframes kb-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(2.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #kb .mach.hot .p::after { animation: none; } }
 #kb .foot { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: calc(10px * var(--fs)); color: var(--muted); }
 #kb .lab { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 5px; border-radius: 3px; background: color-mix(in srgb, var(--slate) 10%, transparent); color: var(--slate); line-height: 15px; }
 #kb .lab.nh { background: color-mix(in srgb, var(--fail) 14%, transparent); color: var(--fail-text); } #kb .lab.sz { background: color-mix(in srgb, var(--waits) 10%, transparent); color: var(--waits-text); }
@@ -892,6 +901,21 @@ body.graph #c, body.graph #tip, body.graph #panel, body.graph .hud { visibility:
 
 .kept { display: contents; }
 .kept[inert] > * { content-visibility: hidden; }
+
+.kept[inert][data-warm] > * { content-visibility: visible; visibility: hidden; }
+.kept[data-warm] [data-warm-parts] > * { content-visibility: hidden; }
+.kept[data-warm="1"] [data-warm-parts] > :nth-child(-n+1),
+.kept[data-warm="2"] [data-warm-parts] > :nth-child(-n+2),
+.kept[data-warm="3"] [data-warm-parts] > :nth-child(-n+3),
+.kept[data-warm="4"] [data-warm-parts] > :nth-child(-n+4),
+.kept[data-warm="5"] [data-warm-parts] > :nth-child(-n+5),
+.kept[data-warm="6"] [data-warm-parts] > :nth-child(-n+6),
+.kept[data-warm="7"] [data-warm-parts] > :nth-child(-n+7),
+.kept[data-warm="8"] [data-warm-parts] > :nth-child(-n+8),
+.kept[data-warm="9"] [data-warm-parts] > :nth-child(-n+9),
+.kept[data-warm="10"] [data-warm-parts] > :nth-child(-n+10),
+.kept[data-warm="11"] [data-warm-parts] > :nth-child(-n+11),
+.kept[data-warm="12"] [data-warm-parts] > :nth-child(-n+12) { content-visibility: visible; }
 
 #kb .card { content-visibility: auto; contain-intrinsic-size: auto 64px; }
 #dg .trow { content-visibility: auto; contain-intrinsic-size: auto 40px; }
