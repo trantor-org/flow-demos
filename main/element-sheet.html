@@ -778,9 +778,8 @@ body.dags canvas, body.dags #tip, body.dags #panel { visibility: hidden; }
 .orb { display: inline-block; flex: none; width: calc(11px * var(--fs)); height: calc(11px * var(--fs)); vertical-align: middle; }
 .orb svg { display: block; width: 100%; height: 100%; overflow: visible; }
 
-svg.dstrip path.link { animation: dag-stream .42s linear infinite; }
+@media (prefers-reduced-motion: no-preference) { .kept:not([inert]) #dg :is(.trow:is(:hover, .spot, :focus-visible), .dgm) svg.dstrip path.link { animation: dag-stream .42s linear infinite; } }
 @keyframes dag-stream { to { stroke-dashoffset: -6; } }
-@media (prefers-reduced-motion: reduce) { svg.dstrip path.link { animation: none; } }
 #dg .fw #dgq { width: calc(270px * var(--fs)); max-width: 100%; }
 .census { display: inline-flex; align-items: center; gap: 10px; margin-left: 8px; font-size: calc(11px * var(--fs)); font-weight: 400; letter-spacing: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
 .census > span { display: inline-flex; align-items: center; gap: 5px; }
