@@ -917,6 +917,47 @@ svg.dstrip.big text.hot { fill: var(--run-text); }
 
 #kb .card { content-visibility: auto; contain-intrinsic-size: auto 64px; }
 #dg .trow { content-visibility: auto; contain-intrinsic-size: auto 40px; }
+
+
+
+#kb .ap { position: relative; display: flex; align-items: center; gap: 12px; flex: none; width: calc(147px + 438px * var(--fs)); min-width: 0; max-width: 100%; box-sizing: border-box; padding: 0 12px; border-inline: 1px solid color-mix(in srgb, var(--slate) 18%, transparent); white-space: nowrap; }
+
+#kb .filters .rt { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 0; min-width: 0; max-width: 100%; margin-left: auto; }
+#kb .ap + .shown { margin-left: 12px; width: calc(90px * var(--fs)); font-variant-numeric: tabular-nums; }
+#kb .rt .nt { display: flex; justify-content: flex-end; width: calc(86px * var(--fs)); }
+#kb .ap .sw-l { flex: none; display: flex; align-items: center; gap: 7px; font-size: calc(11.5px * var(--fs)); color: var(--ink-3); }
+:is(#admin, #kb) .sw:focus-visible { outline: 1px solid var(--agent); outline-offset: 1px; }
+#kb .sw { all: unset; position: relative; display: block; width: 30px; height: 16px; border-radius: 8px; background: color-mix(in srgb, var(--slate) 25%, transparent); transition: background .15s; }
+#kb .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); transition: left .15s; }
+#kb .sw[aria-checked=true] { background: var(--agent-deep); } #kb .sw[aria-checked=true]::after { left: 16px; }
+#kb .sw[disabled] { opacity: .45; }
+#kb .ap .dims { display: flex; flex: none; gap: 12px; transition: opacity .2s; }
+#kb .ap.off .dims { opacity: .45; }
+#kb .ap .dm { min-width: calc(56px * var(--fs)); }
+#kb .ap .dm .r { display: flex; justify-content: space-between; gap: 6px; font-size: calc(10.5px * var(--fs)); color: var(--muted); }
+#kb .ap .dm .r b { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+#kb .ap .dm.near .r b { color: var(--run); } #kb .ap .dm.over .r b, #kb .ap .dm.over .r span { color: var(--fail); }
+#kb .ap .dm .m { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--slate) 15%, transparent); margin-top: 3px; overflow: hidden; }
+#kb .ap .dm .m i { display: block; height: 100%; transition: width .5s; background: var(--slate); }
+#kb .ap .dm.near .m i { background: var(--run); } #kb .ap .dm.over .m i { background: var(--fail); }
+#kb .ap .dmb { all: unset; display: block; border-radius: 4px; }
+#kb .ap .dmb:hover .r span, #kb .ap .dmb:focus-visible .r span { color: var(--ink); } #kb .ap .dmb:focus-visible { outline: 1px solid var(--agent); outline-offset: 3px; }
+#kb .ap .paused { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: calc(11px * var(--fs)); color: var(--muted); }
+#kb .ap .nx { all: unset; flex: 1 1 0; min-width: 0; white-space: nowrap; text-align: right; overflow: hidden; text-overflow: ellipsis; font-size: calc(11px * var(--fs)); color: var(--muted); }
+#kb .ap button.nx:hover b, #kb .ap button.nx:focus-visible b { text-decoration: underline; }
+#kb .ap .nx b { font-weight: 500; color: var(--agent-text); }
+
+#kb .ap .nx.waits b { color: var(--run-text); } #kb .ap .nx.starting b { color: var(--ok); animation: ap-go 1.2s ease-in-out infinite; }
+#kb .ap .nx.none { color: var(--agent-text); }
+@keyframes ap-go { 50% { opacity: .45; } }
+#kb .ap .ap-ses { left: auto; right: 0; min-width: 340px; }
+#kb .ap .ap-ses a { box-sizing: border-box; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; width: 100%; padding: 5px 8px; border-radius: 5px; color: var(--ink-3); text-decoration: none; font-size: calc(12px * var(--fs)); }
+#kb .ap .ap-ses a:hover, #kb .ap .ap-ses a:focus-visible { background: color-mix(in srgb, var(--agent) 15%, transparent); color: var(--ink); outline: none; }
+#kb .ap .ap-ses .id { color: var(--agent-text); } #kb .ap .ap-ses .tt { overflow: hidden; text-overflow: ellipsis; } #kb .ap .ap-ses .md { color: var(--muted); }
+#kb .ap .ap-ses .none { padding: 5px 8px; color: var(--dim); font-size: calc(12px * var(--fs)); }
+#kb .ap .ap-ref { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; margin: 0; width: 320px; white-space: normal; border: 1px solid color-mix(in srgb, var(--fail) 35%, transparent); border-radius: 7px; }
+#kb .ap.down { justify-content: flex-end; font-size: calc(11px * var(--fs)); color: var(--fail-text); }
+@media (prefers-reduced-motion: reduce) { #kb .ap .dm .m i, #kb .ap .dims { transition: none; } #kb .ap .nx.starting b { animation: none; } }
 </style>
 <style>
 /* Sheet layout only, in the palette's own tokens: the specimens below are styled by style.css, never here. */
@@ -1055,6 +1096,12 @@ figcaption code { font: 10.5px "JetBrains Mono", ui-monospace, monospace; color:
           <button class="clear">clear</button>
           <button class="tbtn">+ New task</button>
         </div>
+      </figure>
+      <figure style="grid-column: 1 / -1">
+        <figcaption><b>Autopilot switch and capacity strip</b><code>#kb .ap</code>: the <code>.sw</code> switch (the Admin view's, filled <code>--agent-deep</code> when on), a <code>.dm</code> meter per dimension (<code>.near</code> <code>--run</code> from 80% of its limit, <code>.over</code> <code>--fail</code> past it), Sessions as the <code>.dmb</code> button that lists the sessions in flight, and the <code>.nx</code> next pick (<code>.starting</code> <code>--ok</code>, <code>.waits</code> <code>--run-text</code>). <code>.off</code> dims the meters and drops the pick.</figcaption>
+        <div class="filters"><div class="ap"><label class="sw-l"><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Autopilot"></button>Autopilot</label><div class="dims"><div class="dm ok"><div class="r"><span>CPU</span><b>41/80%</b></div><div class="m"><i style="width: 51%"></i></div></div><div class="dm ok"><div class="r"><span>RAM</span><b>58/85%</b></div><div class="m"><i style="width: 68%"></i></div></div><div class="fw"><button type="button" class="dmb" aria-haspopup="menu" aria-expanded="false"><div class="dm near"><div class="r"><span>Sessions</span><b>3/4</b></div><div class="m"><i style="width: 75%"></i></div></div></button></div><div class="dm ok"><div class="r"><span>Review</span><b>13/24 pts</b></div><div class="m"><i style="width: 54%"></i></div></div></div><button type="button" class="nx starting">Next <b>DEMO-24</b></button></div></div>
+        <div class="filters" style="margin-top: 8px"><div class="ap"><label class="sw-l"><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Autopilot"></button>Autopilot</label><div class="dims"><div class="dm near"><div class="r"><span>CPU</span><b>74/80%</b></div><div class="m"><i style="width: 92%"></i></div></div><div class="dm over"><div class="r"><span>RAM</span><b>91/85%</b></div><div class="m"><i style="width: 100%"></i></div></div><div class="fw"><button type="button" class="dmb" aria-haspopup="menu" aria-expanded="false"><div class="dm near"><div class="r"><span>Sessions</span><b>3/4</b></div><div class="m"><i style="width: 75%"></i></div></div></button></div><div class="dm ok"><div class="r"><span>Review</span><b>13/24 pts</b></div><div class="m"><i style="width: 54%"></i></div></div></div><button type="button" class="nx waits">Next <b>DEMO-24</b></button></div></div>
+        <div class="filters" style="margin-top: 8px"><div class="ap off"><label class="sw-l"><button type="button" class="sw" role="switch" aria-checked="false" aria-label="Autopilot"></button>Autopilot</label><div class="dims"><div class="dm ok"><div class="r"><span>CPU</span><b>43/80%</b></div><div class="m"><i style="width: 54%"></i></div></div><div class="dm ok"><div class="r"><span>RAM</span><b>58/85%</b></div><div class="m"><i style="width: 68%"></i></div></div><div class="fw"><button type="button" class="dmb" aria-haspopup="menu" aria-expanded="false"><div class="dm near"><div class="r"><span>Sessions</span><b>3/4</b></div><div class="m"><i style="width: 75%"></i></div></div></button></div><div class="dm ok"><div class="r"><span>Review</span><b>13/24 pts</b></div><div class="m"><i style="width: 54%"></i></div></div></div><span class="paused" title="3 sessions still running">Paused · 3 running</span></div></div>
       </figure>
     </div>
   </div>
